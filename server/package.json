@@ -1,0 +1,13 @@
+{
+  "name": "muse-agent-orchestrator",
+  "version": "1.0.0",
+  "description": "Central coordination server for Muse AI agents with admin dashboard",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.17.0"
+  }
+}

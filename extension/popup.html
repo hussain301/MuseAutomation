@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      width: 320px;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0f0f13;
+      color: #e0e0e0;
+      padding: 20px;
+    }
+    h2 {
+      font-size: 16px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    h2 span { color: #6c5ce7; }
+
+    .field { margin-bottom: 14px; }
+    .field label {
+      display: block;
+      font-size: 11px;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 5px;
+    }
+    .field input {
+      width: 100%;
+      padding: 8px 10px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid #2a2a3a;
+      border-radius: 6px;
+      color: #e0e0e0;
+      font-size: 13px;
+      outline: none;
+    }
+    .field input:focus { border-color: #6c5ce7; }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 14px;
+    }
+    .status-bar .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+    }
+    .status-bar.connected {
+      background: rgba(0,230,118,0.1);
+      border: 1px solid rgba(0,230,118,0.3);
+    }
+    .status-bar.connected .dot { background: #00e676; }
+    .status-bar.disconnected {
+      background: rgba(239,83,80,0.1);
+      border: 1px solid rgba(239,83,80,0.3);
+    }
+    .status-bar.disconnected .dot { background: #ef5350; }
+
+    .btn {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-save {
+      background: #6c5ce7;
+      color: #fff;
+    }
+    .btn-save:hover { background: #7c6cf0; }
+
+    .info {
+      margin-top: 14px;
+      font-size: 11px;
+      color: #666;
+      line-height: 1.5;
+      border-top: 1px solid #2a2a3a;
+      padding-top: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h2>🎛️ <span>Muse</span> Orchestrator</h2>
+
+  <div class="status-bar disconnected" id="statusBar">
+    <div class="dot"></div>
+    <span id="statusText">Disconnected</span>
+  </div>
+
+  <div class="field">
+    <label>Server URL</label>
+    <input type="text" id="serverUrl" placeholder="e.g. ws://192.168.1.10:3000" />
+  </div>
+
+  <div class="field">
+    <label>Agent Name</label>
+    <input type="text" id="agentName" placeholder="e.g. Azure-VM-1" />
+  </div>
+
+  <button class="btn btn-save" id="btnSave">💾 Save & Reconnect</button>
+
+  <div class="info">
+    Save karne ke baad extension Muse tab ko automatically reconnect karega. Make sure Muse website open hai ek tab me.
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Muse Agent Orchestrator — Admin Panel</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    :root {
+      --bg: #0f0f13;
+      --card: #1a1a24;
+      --card2: #15151e;
+      --border: #2a2a3a;
+      --accent: #6c5ce7;
+      --accent-glow: rgba(108,92,231,0.25);
+      --green: #00e676;
+      --orange: #ffa726;
+      --red: #ef5350;
+      --cyan: #26c6da;
+      --text: #e0e0e0;
+      --text-dim: #777;
+      --radius: 12px;
+    }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ─────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 28px;
+      border-bottom: 1px solid var(--border);
+      background: var(--card);
+    }
+    header h1 { font-size: 18px; font-weight: 600; }
+    header h1 span { color: var(--accent); }
+    .conn-badge {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 13px; padding: 5px 14px;
+      border-radius: 20px;
+      background: rgba(0,230,118,0.1);
+      border: 1px solid rgba(0,230,118,0.3);
+    }
+    .conn-badge .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--green);
+      animation: pulse 2s infinite;
+    }
+    .conn-badge.offline { background: rgba(239,83,80,0.1); border-color: rgba(239,83,80,0.3); }
+    .conn-badge.offline .dot { background: var(--red); animation: none; }
+    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.4;} }
+
+    /* ── Layout ─────────────────────────────── */
+    .container {
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      grid-template-rows: auto auto 1fr;
+      gap: 16px;
+      padding: 20px 24px;
+      height: calc(100vh - 57px);
+    }
+
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .panel-header {
+      padding: 12px 18px;
+      font-size: 12px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 1px;
+      color: var(--text-dim);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .panel-body {
+      padding: 14px 18px;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    /* ── Stats Bar ──────────────────────────── */
+    .stats-bar {
+      grid-column: 1 / -1;
+      display: flex; gap: 12px;
+    }
+    .stat-card {
+      flex: 1;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      text-align: center;
+    }
+    .stat-card .number { font-size: 36px; font-weight: 700; line-height: 1; }
+    .stat-card .label {
+      margin-top: 4px; font-size: 11px;
+      color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px;
+    }
+    .stat-card.live .number { color: var(--green); }
+    .stat-card.typing .number { color: var(--orange); }
+    .stat-card.responded .number { color: var(--cyan); }
+    .stat-card.errors .number { color: var(--red); }
+
+    /* ── Agent Cards ────────────────────────── */
+    .agent-grid { display: flex; flex-direction: column; gap: 8px; }
+    .agent-card {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 10px 14px; border-radius: 8px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border);
+      cursor: pointer; transition: all 0.2s;
+      flex-direction: column;
+    }
+    .agent-card:hover { border-color: var(--accent); }
+    .agent-card.selected { border-color: var(--accent); background: var(--accent-glow); }
+    .agent-top { display: flex; align-items: center; gap: 10px; width: 100%; }
+    .agent-status-dot {
+      width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
+    }
+    .agent-status-dot.online { background: var(--green); }
+    .agent-status-dot.typing { background: var(--orange); animation: pulse 1s infinite; }
+    .agent-status-dot.error  { background: var(--red); }
+    .agent-info { flex: 1; min-width: 0; }
+    .agent-name { font-size: 13px; font-weight: 600; }
+    .agent-name .num { color: var(--accent); font-weight: 400; }
+    .agent-meta {
+      font-size: 10px; color: var(--text-dim); margin-top: 1px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    /* Response status badge */
+    .resp-badge {
+      font-size: 10px; padding: 2px 8px; border-radius: 10px;
+      font-weight: 600; white-space: nowrap;
+    }
+    .resp-badge.waiting  { background: rgba(255,167,38,0.15); color: var(--orange); }
+    .resp-badge.received { background: rgba(38,198,218,0.15); color: var(--cyan); }
+    .resp-badge.timeout  { background: rgba(239,83,80,0.15); color: var(--red); }
+    .resp-badge.error    { background: rgba(239,83,80,0.15); color: var(--red); }
+
+    /* Agent response preview */
+    .agent-response {
+      width: 100%;
+      margin-top: 6px;
+      padding: 8px 10px;
+      background: rgba(255,255,255,0.03);
+      border-radius: 6px;
+      font-size: 11px;
+      color: var(--text-dim);
+      line-height: 1.4;
+      max-height: 60px;
+      overflow-y: auto;
+      word-break: break-word;
+    }
+
+    /* Resend button */
+    .agent-actions {
+      display: flex; gap: 6px; margin-top: 6px; width: 100%;
+    }
+    .btn-tiny {
+      padding: 3px 10px; border: 1px solid var(--border);
+      background: transparent; color: var(--text-dim);
+      border-radius: 4px; font-size: 10px; cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-tiny:hover { border-color: var(--accent); color: var(--accent); }
+    .btn-tiny.resend:hover { border-color: var(--orange); color: var(--orange); }
+
+    .empty-state { color: var(--text-dim); text-align: center; padding: 30px 0; font-size: 13px; }
+
+    /* ── Broadcast Panel ────────────────────── */
+    .broadcast-area { display: flex; flex-direction: column; height: 100%; }
+    .broadcast-area textarea {
+      flex: 1; min-height: 80px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px;
+      color: var(--text); font-size: 14px; font-family: inherit;
+      resize: none; outline: none; transition: border-color 0.2s;
+    }
+    .broadcast-area textarea:focus { border-color: var(--accent); }
+    .broadcast-area textarea::placeholder { color: var(--text-dim); }
+
+    /* Toggle row */
+    .toggle-row {
+      display: flex; align-items: center; gap: 16px;
+      margin-top: 10px; flex-wrap: wrap;
+    }
+    .toggle-group {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .toggle-group label { font-size: 12px; color: var(--text-dim); }
+    /* Toggle switch */
+    .switch {
+      position: relative; width: 38px; height: 20px;
+      display: inline-block;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: var(--border); border-radius: 20px;
+      transition: 0.3s;
+    }
+    .slider:before {
+      content: ''; position: absolute;
+      width: 16px; height: 16px; left: 2px; bottom: 2px;
+      background: #fff; border-radius: 50%; transition: 0.3s;
+    }
+    .switch input:checked + .slider { background: var(--accent); }
+    .switch input:checked + .slider:before { transform: translateX(18px); }
+
+    .var-hint {
+      font-size: 11px; color: var(--text-dim);
+      margin-top: 8px; line-height: 1.5;
+      padding: 8px 10px;
+      background: rgba(108,92,231,0.08);
+      border-radius: 6px;
+      border-left: 3px solid var(--accent);
+    }
+    .var-hint code {
+      background: rgba(255,255,255,0.08);
+      padding: 1px 5px; border-radius: 3px;
+      color: var(--accent);
+    }
+
+    .broadcast-btns { display: flex; gap: 8px; margin-top: 10px; }
+    .btn {
+      padding: 9px 20px; border: none; border-radius: 8px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      transition: all 0.2s; flex: 1;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: #7c6cf0; transform: translateY(-1px); }
+    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+    .btn-secondary {
+      background: rgba(255,255,255,0.06); color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { background: rgba(255,255,255,0.1); }
+    .target-info { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
+
+    /* ── Logs ───────────────────────────────── */
+    .log-list {
+      display: flex; flex-direction: column; gap: 3px;
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      font-size: 11px;
+    }
+    .log-entry {
+      padding: 5px 8px; border-radius: 4px;
+      display: flex; gap: 8px; line-height: 1.4;
+    }
+    .log-entry .log-time { color: var(--text-dim); white-space: nowrap; }
+    .log-entry.connect    { color: var(--green); background: rgba(0,230,118,0.05); }
+    .log-entry.disconnect { color: var(--red);   background: rgba(239,83,80,0.05); }
+    .log-entry.success    { color: var(--green); }
+    .log-entry.error      { color: var(--red); }
+    .log-entry.info       { color: var(--accent); }
+    .log-entry.response   { color: var(--cyan); background: rgba(38,198,218,0.05); }
+    .log-entry.warning    { color: var(--orange); background: rgba(255,167,38,0.05); }
+
+    /* ── XPath Config ──────────────────────── */
+    .config-group { margin-bottom: 12px; }
+    .config-group label {
+      display: block; font-size: 11px; color: var(--text-dim);
+      margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .config-group input {
+      width: 100%; background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 8px 10px; color: var(--text);
+      font-family: 'Cascadia Code', monospace; font-size: 11px; outline: none;
+    }
+    .config-group input:focus { border-color: var(--accent); }
+
+    /* ── Scrollbar ──────────────────────────── */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── Responsive ─────────────────────────── */
+    @media (max-width: 900px) {
+      .container { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🎛️ <span>Muse</span> Agent Orchestrator</h1>
+    <div class="conn-badge" id="serverStatus">
+      <div class="dot"></div>
+      <span>Connecting...</span>
+    </div>
+  </header>
+
+  <div class="container">
+    <!-- ── Stats Bar ──────────────────── -->
+    <div class="stats-bar">
+      <div class="stat-card live">
+        <div class="number" id="statLive">0</div>
+        <div class="label">Agents Live</div>
+      </div>
+      <div class="stat-card typing">
+        <div class="number" id="statTyping">0</div>
+        <div class="label">Typing</div>
+      </div>
+      <div class="stat-card responded">
+        <div class="number" id="statResponded">0</div>
+        <div class="label">Responded</div>
+      </div>
+      <div class="stat-card errors">
+        <div class="number" id="statErrors">0</div>
+        <div class="label">Errors / Timeout</div>
+      </div>
+    </div>
+
+    <!-- ── Left: Agent List ───────────── -->
+    <div class="panel" style="grid-row: 2 / 4;">
+      <div class="panel-header">
+        <span>🤖 Agents (<span id="agentCount">0</span>)</span>
+        <div style="display:flex;gap:6px;">
+          <button class="btn-tiny" onclick="selectAll()">Select All</button>
+          <button class="btn-tiny resend" onclick="resendToFailed()">🔄 Resend Failed</button>
+        </div>
+      </div>
+      <div class="panel-body" id="agentList">
+        <div class="empty-state">No agents connected yet...<br>Install extension on Azure VMs.</div>
+      </div>
+    </div>
+
+    <!-- ── Right Top: Broadcast ────────── -->
+    <div class="panel">
+      <div class="panel-header"><span>📡 Broadcast Message</span></div>
+      <div class="panel-body">
+        <div class="broadcast-area">
+          <textarea id="messageBox" placeholder="Type your message here...&#10;Use {x} for agent number, {name} for agent name"></textarea>
+
+          <div class="toggle-row">
+            <div class="toggle-group">
+              <label class="switch">
+                <input type="checkbox" id="toggleNewChat">
+                <span class="slider"></span>
+              </label>
+              <label>New Chat pehle</label>
+            </div>
+          </div>
+
+          <div class="var-hint">
+            💡 Variables: <code>{x}</code> = agent number (1,2,3...) &nbsp;
+            <code>{name}</code> = agent name &nbsp;
+            <code>{total}</code> = total agents
+          </div>
+
+          <div class="broadcast-btns">
+            <button class="btn btn-primary" onclick="sendMessage('ALL')">⚡ Send to All</button>
+            <button class="btn btn-secondary" id="btnSendSelected" onclick="sendMessage('SELECTED')" disabled>🎯 Send to Selected</button>
+          </div>
+          <div class="target-info" id="targetInfo">Target: All agents</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Right Bottom: Tabbed (Logs / Config) ── -->
+    <div class="panel">
+      <div class="panel-header">
+        <div style="display:flex;gap:16px;">
+          <span class="tab-btn active" onclick="switchTab('logs')" id="tabLogs">📋 Live Logs</span>
+          <span class="tab-btn" onclick="switchTab('config')" id="tabConfig" style="cursor:pointer;opacity:0.5;">⚙️ XPath Config</span>
+        </div>
+        <button class="btn-tiny" onclick="clearLogs()">Clear</button>
+      </div>
+      <div class="panel-body" id="tabContentLogs">
+        <div class="log-list" id="logList"></div>
+      </div>
+      <div class="panel-body" id="tabContentConfig" style="display:none;">
+        <div class="config-group">
+          <label>Chat Input Textarea XPath</label>
+          <input type="text" id="inputXPath" value="/html/body/div[2]/div/div/div/div/div[1]/div/div[3]/div/div/div[3]/div/div/div[1]/div/textarea" />
+        </div>
+        <div class="config-group">
+          <label>New Chat Button XPath</label>
+          <input type="text" id="newChatBtnXPath" value="/html/body/div[2]/div/div/div/div/div[1]/div/div[1]/div/div/div[4]/div/div/nav/div/div[2]/div/div/div/div[1]/section/div[1]/span/button" />
+        </div>
+        <div class="config-group">
+          <label>Response Container XPath (optional — for capturing agent response)</label>
+          <input type="text" id="responseXPath" placeholder="XPath to the chat messages container" />
+        </div>
+        <button class="btn btn-primary" style="margin-top:8px;width:100%;" onclick="pushConfig()">📤 Push Config to All Agents</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+// ── State ──────────────────────────────────────────────────
+let ws = null;
+let agents = [];
+let selectedAgentIds = new Set();
+
+// ── WebSocket Connection ───────────────────────────────────
+function connect() {
+  const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${protocol}://${location.host}`);
+
+  ws.onopen = () => {
+    updateConnectionBadge(true);
+    ws.send(JSON.stringify({ type: 'register', role: 'admin' }));
+  };
+
+  ws.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    if (data.type === 'agents_update') {
+      agents = data.agents;
+      renderAgents();
+      updateStats();
+    }
+    if (data.type === 'log') {
+      appendLog(data.logType, data.text, data.timestamp);
+    }
+    if (data.type === 'agent_response') {
+      // Flash the responded stat
+      const el = document.getElementById('statResponded');
+      el.style.transform = 'scale(1.2)';
+      setTimeout(() => el.style.transform = '', 300);
+    }
+  };
+
+  ws.onclose = () => {
+    updateConnectionBadge(false);
+    setTimeout(connect, 3000);
+  };
+  ws.onerror = () => ws.close();
+}
+
+// ── Render Agents ──────────────────────────────────────────
+function renderAgents() {
+  const el = document.getElementById('agentList');
+  document.getElementById('agentCount').textContent = agents.length;
+
+  if (agents.length === 0) {
+    el.innerHTML = '<div class="empty-state">No agents connected yet...<br>Install extension on Azure VMs.</div>';
+    return;
+  }
+
+  const liveIds = new Set(agents.map(a => a.id));
+  selectedAgentIds.forEach(id => { if (!liveIds.has(id)) selectedAgentIds.delete(id); });
+
+  el.innerHTML = '<div class="agent-grid">' + agents.map(a => {
+    const isSelected = selectedAgentIds.has(a.id);
+    let respHtml = '';
+    
+    // Response status badge
+    if (a.responseStatus === 'waiting') {
+      respHtml += `<span class="resp-badge waiting">⏳ Waiting...</span>`;
+    } else if (a.responseStatus === 'received') {
+      respHtml += `<span class="resp-badge received">✓ Responded</span>`;
+    } else if (a.responseStatus === 'timeout') {
+      respHtml += `<span class="resp-badge timeout">⏰ Timeout</span>`;
+    } else if (a.responseStatus === 'error') {
+      respHtml += `<span class="resp-badge error">✗ Error</span>`;
+    }
+
+    // Response preview
+    let responsePreview = '';
+    if (a.lastResponse) {
+      const text = a.lastResponse.length > 150 ? a.lastResponse.substring(0, 150) + '...' : a.lastResponse;
+      responsePreview = `<div class="agent-response">${escHtml(text)}</div>`;
+    }
+
+    // Actions
+    let actionsHtml = '';
+    if (a.responseStatus === 'timeout' || a.responseStatus === 'error') {
+      actionsHtml = `<div class="agent-actions">
+        <button class="btn-tiny resend" onclick="event.stopPropagation(); resendTo('${a.id}')">🔄 Resend</button>
+      </div>`;
+    }
+
+    return `
+    <div class="agent-card ${isSelected ? 'selected' : ''}" onclick="toggleAgent('${a.id}')">
+      <div class="agent-top">
+        <div class="agent-status-dot ${a.status}"></div>
+        <div class="agent-info">
+          <div class="agent-name"><span class="num">#${a.number}</span> ${escHtml(a.name)}</div>
+          <div class="agent-meta" title="${escHtml(a.url)}">${escHtml(a.url)}</div>
+        </div>
+        ${respHtml}
+      </div>
+      ${responsePreview}
+      ${actionsHtml}
+    </div>`;
+  }).join('') + '</div>';
+
+  updateTargetInfo();
+}
+
+// ── Stats ──────────────────────────────────────────────────
+function updateStats() {
+  document.getElementById('statLive').textContent = agents.length;
+  document.getElementById('statTyping').textContent = agents.filter(a => a.status === 'typing').length;
+  document.getElementById('statResponded').textContent = agents.filter(a => a.responseStatus === 'received').length;
+  document.getElementById('statErrors').textContent = agents.filter(a => a.responseStatus === 'error' || a.responseStatus === 'timeout').length;
+}
+
+// ── Selection ──────────────────────────────────────────────
+function toggleAgent(id) {
+  if (selectedAgentIds.has(id)) selectedAgentIds.delete(id);
+  else selectedAgentIds.add(id);
+  renderAgents();
+}
+
+function selectAll() {
+  if (selectedAgentIds.size === agents.length) selectedAgentIds.clear();
+  else agents.forEach(a => selectedAgentIds.add(a.id));
+  renderAgents();
+}
+
+function updateTargetInfo() {
+  const info = document.getElementById('targetInfo');
+  const btn = document.getElementById('btnSendSelected');
+  if (selectedAgentIds.size === 0) {
+    info.textContent = 'Target: All agents';
+    btn.disabled = true;
+  } else {
+    info.textContent = `Target: ${selectedAgentIds.size} agent(s) selected`;
+    btn.disabled = false;
+  }
+}
+
+// ── Send Message ───────────────────────────────────────────
+function sendMessage(mode) {
+  const msg = document.getElementById('messageBox').value.trim();
+  if (!msg) return;
+  if (!ws || ws.readyState !== 1) return alert('Not connected to server!');
+
+  const newChat = document.getElementById('toggleNewChat').checked;
+
+  ws.send(JSON.stringify({
+    type: 'send_message',
+    message: msg,
+    targetIds: mode === 'SELECTED' ? Array.from(selectedAgentIds) : 'ALL',
+    newChat: newChat,
+    responseTimeout: 60
+  }));
+
+  document.getElementById('messageBox').value = '';
+}
+
+// Ctrl+Enter shortcut
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.key === 'Enter') {
+    sendMessage(selectedAgentIds.size > 0 ? 'SELECTED' : 'ALL');
+  }
+});
+
+// ── Resend ─────────────────────────────────────────────────
+function resendTo(agentId) {
+  if (!ws || ws.readyState !== 1) return;
+  const newChat = document.getElementById('toggleNewChat').checked;
+  ws.send(JSON.stringify({
+    type: 'resend',
+    targetIds: [agentId],
+    newChat: newChat
+  }));
+}
+
+function resendToFailed() {
+  const failedIds = agents
+    .filter(a => a.responseStatus === 'timeout' || a.responseStatus === 'error')
+    .map(a => a.id);
+  if (failedIds.length === 0) return alert('No failed agents to resend to!');
+  if (!ws || ws.readyState !== 1) return;
+  const newChat = document.getElementById('toggleNewChat').checked;
+  ws.send(JSON.stringify({
+    type: 'resend',
+    targetIds: failedIds,
+    newChat: newChat
+  }));
+}
+
+// ── Push XPath Config ──────────────────────────────────────
+function pushConfig() {
+  if (!ws || ws.readyState !== 1) return;
+  ws.send(JSON.stringify({
+    type: 'update_config',
+    config: {
+      inputXPath: document.getElementById('inputXPath').value.trim(),
+      newChatButtonXPath: document.getElementById('newChatBtnXPath').value.trim(),
+      responseXPath: document.getElementById('responseXPath').value.trim()
+    }
+  }));
+}
+
+// ── Tabs ───────────────────────────────────────────────────
+function switchTab(tab) {
+  document.getElementById('tabContentLogs').style.display = tab === 'logs' ? '' : 'none';
+  document.getElementById('tabContentConfig').style.display = tab === 'config' ? '' : 'none';
+  document.getElementById('tabLogs').style.opacity = tab === 'logs' ? '1' : '0.5';
+  document.getElementById('tabConfig').style.opacity = tab === 'config' ? '1' : '0.5';
+  document.getElementById('tabLogs').className = `tab-btn ${tab === 'logs' ? 'active' : ''}`;
+  document.getElementById('tabConfig').className = `tab-btn ${tab === 'config' ? 'active' : ''}`;
+}
+
+// ── Logs ───────────────────────────────────────────────────
+function appendLog(logType, text, timestamp) {
+  const list = document.getElementById('logList');
+  const entry = document.createElement('div');
+  entry.className = `log-entry ${logType}`;
+  entry.innerHTML = `<span class="log-time">${timestamp}</span><span>${escHtml(text)}</span>`;
+  list.appendChild(entry);
+  const panel = document.getElementById('tabContentLogs');
+  panel.scrollTop = panel.scrollHeight;
+  while (list.children.length > 300) list.removeChild(list.firstChild);
+}
+function clearLogs() { document.getElementById('logList').innerHTML = ''; }
+
+// ── Helpers ────────────────────────────────────────────────
+function escHtml(str) {
+  const d = document.createElement('div');
+  d.textContent = str || '';
+  return d.innerHTML;
+}
+function updateConnectionBadge(online) {
+  const badge = document.getElementById('serverStatus');
+  badge.className = online ? 'conn-badge' : 'conn-badge offline';
+  badge.querySelector('span').textContent = online ? 'Server Connected' : 'Disconnected';
+}
+
+// ── Init ───────────────────────────────────────────────────
+connect();
+</script>
+</body>
+</html>
