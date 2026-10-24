@@ -322,6 +322,79 @@
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
+    /* ── Chat Modal ─────────────────────────── */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+      backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center;
+      z-index: 1000; padding: 20px;
+    }
+    .modal-overlay.active { display: flex; }
+    .chat-modal {
+      width: 100%; max-width: 680px; height: 80vh; max-height: 720px;
+      background: #181824; border: 1px solid var(--border); border-radius: 14px;
+      display: flex; flex-direction: column; overflow: hidden;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+    }
+    .modal-header {
+      padding: 14px 20px; background: #14141e; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .modal-header h3 { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+    .modal-close {
+      background: transparent; border: none; color: var(--text-dim); font-size: 20px;
+      cursor: pointer; padding: 4px 8px; border-radius: 6px;
+    }
+    .modal-close:hover { color: #fff; background: rgba(255,255,255,0.1); }
+    .chat-messages-container {
+      flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px;
+      background: #101017;
+    }
+    .chat-msg {
+      display: flex; flex-direction: column; max-width: 85%; line-height: 1.5; font-size: 13px;
+    }
+    .chat-msg.user {
+      align-self: flex-end; align-items: flex-end;
+    }
+    .chat-msg.assistant {
+      align-self: flex-start; align-items: flex-start;
+    }
+    .chat-msg-bubble {
+      padding: 10px 14px; border-radius: 14px; word-break: break-word; white-space: pre-wrap;
+    }
+    .chat-msg.user .chat-msg-bubble {
+      background: var(--accent); color: #fff; border-bottom-right-radius: 4px;
+    }
+    .chat-msg.assistant .chat-msg-bubble {
+      background: #20202e; border: 1px solid var(--border); color: #e5e5e5; border-bottom-left-radius: 4px;
+    }
+    .chat-msg-meta {
+      font-size: 10px; color: var(--text-dim); margin-top: 4px; padding: 0 4px;
+    }
+    .chat-input-bar {
+      padding: 12px 16px; background: #14141e; border-top: 1px solid var(--border);
+      display: flex; gap: 10px; align-items: center;
+    }
+    .chat-input-bar input {
+      flex: 1; background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 14px; color: #fff; font-size: 13px; outline: none;
+    }
+    .chat-input-bar input:focus { border-color: var(--accent); }
+
+    /* ── Live Chat Feed Item ────────────────── */
+    .feed-item {
+      padding: 8px 12px; border-radius: 6px; background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border); margin-bottom: 6px; display: flex; flex-direction: column; gap: 4px;
+    }
+    .feed-item.assistant { border-left: 3px solid var(--cyan); }
+    .feed-item.user { border-left: 3px solid var(--accent); }
+    .feed-header {
+      display: flex; justify-content: space-between; font-size: 11px; color: var(--text-dim);
+    }
+    .feed-role { font-weight: 600; }
+    .feed-role.assistant { color: var(--cyan); }
+    .feed-role.user { color: var(--accent); }
+    .feed-text { font-size: 12px; line-height: 1.4; color: #ddd; word-break: break-word; }
+
     /* ── Responsive ─────────────────────────── */
     @media (max-width: 900px) {
       .container { grid-template-columns: 1fr; }
@@ -408,16 +481,22 @@
       </div>
     </div>
 
-    <!-- ── Right Bottom: Tabbed (Logs / Config) ── -->
+    <!-- ── Right Bottom: Tabbed (Chat Feed / Logs / Config) ── -->
     <div class="panel">
       <div class="panel-header">
         <div style="display:flex;gap:16px;">
-          <span class="tab-btn active" onclick="switchTab('logs')" id="tabLogs">📋 Live Logs</span>
-          <span class="tab-btn" onclick="switchTab('config')" id="tabConfig" style="cursor:pointer;opacity:0.5;">⚙️ XPath Config</span>
+          <span class="tab-btn active" onclick="switchTab('feed')" id="tabFeed" style="cursor:pointer;">💬 Live Chat Feed</span>
+          <span class="tab-btn" onclick="switchTab('logs')" id="tabLogs" style="cursor:pointer;opacity:0.5;">📋 Logs</span>
+          <span class="tab-btn" onclick="switchTab('config')" id="tabConfig" style="cursor:pointer;opacity:0.5;">⚙️ Config</span>
         </div>
-        <button class="btn-tiny" onclick="clearLogs()">Clear</button>
+        <button class="btn-tiny" onclick="clearActiveTab()">Clear</button>
       </div>
-      <div class="panel-body" id="tabContentLogs">
+      <div class="panel-body" id="tabContentFeed">
+        <div id="feedList">
+          <div class="empty-state" id="feedEmptyState">No agent messages yet. When Muse replies in any browser, it will appear here in real-time!</div>
+        </div>
+      </div>
+      <div class="panel-body" id="tabContentLogs" style="display:none;">
         <div class="log-list" id="logList"></div>
       </div>
       <div class="panel-body" id="tabContentConfig" style="display:none;">
@@ -438,11 +517,29 @@
     </div>
   </div>
 
+  <!-- ── Agent Chat Modal ────────────────────────────── -->
+  <div class="modal-overlay" id="chatModal" onclick="closeChatModal(event)">
+    <div class="chat-modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3 id="modalAgentTitle">💬 Agent Chat</h3>
+        <button class="modal-close" onclick="closeChatModal()">✕</button>
+      </div>
+      <div class="chat-messages-container" id="modalMessages">
+        <!-- Live conversation items -->
+      </div>
+      <div class="chat-input-bar">
+        <input type="text" id="modalInput" placeholder="Send direct message to this agent (Enter to send)..." onkeydown="handleModalKeyDown(event)" />
+        <button class="btn btn-primary" style="flex:none;padding:10px 18px;" onclick="sendModalMessage()">Send</button>
+      </div>
+    </div>
+  </div>
+
 <script>
 // ── State ──────────────────────────────────────────────────
 let ws = null;
 let agents = [];
 let selectedAgentIds = new Set();
+let activeChatAgentId = null;
 
 // ── WebSocket Connection ───────────────────────────────────
 function connect() {
@@ -460,9 +557,18 @@ function connect() {
       agents = data.agents;
       renderAgents();
       updateStats();
+      if (activeChatAgentId) {
+        updateActiveModal();
+      }
     }
     if (data.type === 'log') {
       appendLog(data.logType, data.text, data.timestamp);
+    }
+    if (data.type === 'agent_chat_stream') {
+      appendFeedItem(data.agentNumber, data.agentName, data.message);
+      if (activeChatAgentId === data.agentId) {
+        appendModalMessage(data.message);
+      }
     }
     if (data.type === 'agent_response') {
       // Flash the responded stat
@@ -507,20 +613,28 @@ function renderAgents() {
       respHtml += `<span class="resp-badge error">✗ Error</span>`;
     }
 
-    // Response preview
+    // Response preview & latest chat message
     let responsePreview = '';
-    if (a.lastResponse) {
+    const history = a.chatHistory || [];
+    if (history.length > 0) {
+      const last = history[history.length - 1];
+      const isAssistant = last.role === 'assistant';
+      responsePreview = `<div class="agent-response" style="${isAssistant ? 'border-left: 2px solid var(--cyan);' : 'border-left: 2px solid var(--accent);'}">
+        <span style="font-weight:600;color:${isAssistant ? 'var(--cyan)' : 'var(--accent)'}">${isAssistant ? '🤖 Muse' : '👤 You'}:</span> ${escHtml(last.text)}
+      </div>`;
+    } else if (a.lastResponse) {
       const text = a.lastResponse.length > 150 ? a.lastResponse.substring(0, 150) + '...' : a.lastResponse;
       responsePreview = `<div class="agent-response">${escHtml(text)}</div>`;
     }
 
     // Actions
-    let actionsHtml = '';
+    let actionsHtml = `<div class="agent-actions">
+      <button class="btn-tiny" style="color:var(--accent);border-color:var(--accent);" onclick="event.stopPropagation(); openChatModal('${a.id}')">💬 View Chat (${history.length})</button>`;
+    
     if (a.responseStatus === 'timeout' || a.responseStatus === 'error') {
-      actionsHtml = `<div class="agent-actions">
-        <button class="btn-tiny resend" onclick="event.stopPropagation(); resendTo('${a.id}')">🔄 Resend</button>
-      </div>`;
+      actionsHtml += `<button class="btn-tiny resend" onclick="event.stopPropagation(); resendTo('${a.id}')">🔄 Resend</button>`;
     }
+    actionsHtml += `</div>`;
 
     return `
     <div class="agent-card ${isSelected ? 'selected' : ''}" onclick="toggleAgent('${a.id}')">
@@ -658,13 +772,151 @@ function pushConfig() {
 }
 
 // ── Tabs ───────────────────────────────────────────────────
+let currentTab = 'feed';
+
 function switchTab(tab) {
+  currentTab = tab;
+  document.getElementById('tabContentFeed').style.display = tab === 'feed' ? '' : 'none';
   document.getElementById('tabContentLogs').style.display = tab === 'logs' ? '' : 'none';
   document.getElementById('tabContentConfig').style.display = tab === 'config' ? '' : 'none';
+
+  document.getElementById('tabFeed').style.opacity = tab === 'feed' ? '1' : '0.5';
   document.getElementById('tabLogs').style.opacity = tab === 'logs' ? '1' : '0.5';
   document.getElementById('tabConfig').style.opacity = tab === 'config' ? '1' : '0.5';
+
+  document.getElementById('tabFeed').className = `tab-btn ${tab === 'feed' ? 'active' : ''}`;
   document.getElementById('tabLogs').className = `tab-btn ${tab === 'logs' ? 'active' : ''}`;
   document.getElementById('tabConfig').className = `tab-btn ${tab === 'config' ? 'active' : ''}`;
+}
+
+function clearActiveTab() {
+  if (currentTab === 'feed') {
+    document.getElementById('feedList').innerHTML = '<div class="empty-state" id="feedEmptyState">Feed cleared. Waiting for new messages...</div>';
+  } else if (currentTab === 'logs') {
+    clearLogs();
+  }
+}
+
+// ── Live Chat Feed ─────────────────────────────────────────
+function appendFeedItem(agentNumber, agentName, msg) {
+  const empty = document.getElementById('feedEmptyState');
+  if (empty) empty.remove();
+
+  const list = document.getElementById('feedList');
+  const isAssistant = msg.role === 'assistant';
+
+  const item = document.createElement('div');
+  item.className = `feed-item ${msg.role}`;
+  item.innerHTML = `
+    <div class="feed-header">
+      <span class="feed-role ${msg.role}">${isAssistant ? '🤖 Muse' : '👤 User'} — <span style="color:#aaa;">#${agentNumber} ${escHtml(agentName)}</span></span>
+      <span>${escHtml(msg.timestamp || new Date().toLocaleTimeString())}</span>
+    </div>
+    <div class="feed-text">${escHtml(msg.text)}</div>
+  `;
+  list.appendChild(item);
+
+  // Auto-scroll tabContentFeed
+  const panel = document.getElementById('tabContentFeed');
+  panel.scrollTop = panel.scrollHeight;
+
+  // Cap at 250 items
+  while (list.children.length > 250) list.removeChild(list.firstChild);
+}
+
+// ── Chat Modal ─────────────────────────────────────────────
+function openChatModal(agentId) {
+  activeChatAgentId = agentId;
+  const agent = agents.find(a => a.id === agentId);
+  if (!agent) return;
+
+  document.getElementById('modalAgentTitle').innerHTML = `💬 Live Chat — <span style="color:var(--accent)">#${agent.number} ${escHtml(agent.name)}</span>`;
+  document.getElementById('chatModal').className = 'modal-overlay active';
+
+  renderModalMessages(agent);
+  document.getElementById('modalInput').focus();
+}
+
+function closeChatModal(e) {
+  if (e && e.target !== e.currentTarget && !e.target.classList.contains('modal-close')) return;
+  activeChatAgentId = null;
+  document.getElementById('chatModal').className = 'modal-overlay';
+}
+
+function updateActiveModal() {
+  if (!activeChatAgentId) return;
+  const agent = agents.find(a => a.id === activeChatAgentId);
+  if (agent) {
+    renderModalMessages(agent);
+  }
+}
+
+function renderModalMessages(agent) {
+  const container = document.getElementById('modalMessages');
+  const history = agent.chatHistory || [];
+
+  if (history.length === 0) {
+    container.innerHTML = `<div class="empty-state" style="margin:auto;">No messages recorded yet for this agent.<br>Type below to send a message directly to this agent!</div>`;
+    return;
+  }
+
+  container.innerHTML = history.map(msg => {
+    const isAssistant = msg.role === 'assistant';
+    return `
+      <div class="chat-msg ${isAssistant ? 'assistant' : 'user'}">
+        <div class="chat-msg-bubble">
+          ${isAssistant ? '<div style="font-size:11px;font-weight:700;color:var(--cyan);margin-bottom:4px;">🤖 Muse Agent</div>' : ''}
+          ${escHtml(msg.text)}
+        </div>
+        <div class="chat-msg-meta">${escHtml(msg.timestamp || '')}</div>
+      </div>
+    `;
+  }).join('');
+
+  container.scrollTop = container.scrollHeight;
+}
+
+function appendModalMessage(msg) {
+  const container = document.getElementById('modalMessages');
+  const empty = container.querySelector('.empty-state');
+  if (empty) empty.remove();
+
+  const isAssistant = msg.role === 'assistant';
+  const el = document.createElement('div');
+  el.className = `chat-msg ${isAssistant ? 'assistant' : 'user'}`;
+  el.innerHTML = `
+    <div class="chat-msg-bubble">
+      ${isAssistant ? '<div style="font-size:11px;font-weight:700;color:var(--cyan);margin-bottom:4px;">🤖 Muse Agent</div>' : ''}
+      ${escHtml(msg.text)}
+    </div>
+    <div class="chat-msg-meta">${escHtml(msg.timestamp || new Date().toLocaleTimeString())}</div>
+  `;
+  container.appendChild(el);
+  container.scrollTop = container.scrollHeight;
+}
+
+function sendModalMessage() {
+  const input = document.getElementById('modalInput');
+  const text = input.value.trim();
+  if (!text || !activeChatAgentId) return;
+
+  if (!ws || ws.readyState !== 1) return alert('Not connected to server!');
+
+  ws.send(JSON.stringify({
+    type: 'send_message',
+    message: text,
+    targetIds: [activeChatAgentId],
+    newChat: false
+  }));
+
+  input.value = '';
+}
+
+function handleModalKeyDown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendModalMessage();
+  }
 }
 
 // ── Logs ───────────────────────────────────────────────────

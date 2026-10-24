@@ -112,7 +112,8 @@ wss.on('connection', (ws) => {
           lastSeen: new Date().toISOString(),
           lastMessageSentAt: null,
           lastResponse: null,
-          responseStatus: null   // null | 'waiting' | 'received' | 'timeout' | 'error'
+          responseStatus: null,   // null | 'waiting' | 'received' | 'timeout' | 'error'
+          chatHistory: []         // array of { id, role, text, timestamp }
         };
         agents.set(ws, agentInfo);
         console.log(`[+] Agent #${agentNumber} connected: ${agentInfo.name} (${agentInfo.id})`);
@@ -184,6 +185,45 @@ wss.on('connection', (ws) => {
         info.status = 'online';
         sendAgentListToAdmins();
         sendLog('warning', `[#${info.number} ${info.name}] No response received (timeout)`);
+      }
+
+      // Real-time chat streaming from Muse chat
+      if (data.type === 'chat_stream' && data.message) {
+        const msg = data.message;
+        if (!info.chatHistory) info.chatHistory = [];
+
+        // Check if message is already in history
+        const existingIdx = info.chatHistory.findIndex(m => m.id === msg.id);
+        if (existingIdx === -1) {
+          info.chatHistory.push(msg);
+          if (info.chatHistory.length > 100) info.chatHistory.shift();
+        } else {
+          info.chatHistory[existingIdx] = msg;
+        }
+
+        if (msg.role === 'assistant') {
+          info.lastResponse = msg.text;
+          info.responseStatus = 'received';
+          info.status = 'online';
+        }
+
+        info.lastSeen = new Date().toISOString();
+        sendAgentListToAdmins();
+
+        // Broadcast new chat message to all connected admins
+        broadcastToAdmins({
+          type: 'agent_chat_stream',
+          agentId: info.id,
+          agentNumber: info.number,
+          agentName: info.name,
+          message: msg
+        });
+
+        const preview = msg.text.length > 70 ? msg.text.substring(0, 70) + '...' : msg.text;
+        sendLog(
+          msg.role === 'assistant' ? 'response' : 'info',
+          `[#${info.number} ${info.name}] ${msg.role === 'assistant' ? '🤖 Muse' : '👤 You'}: "${preview}"`
+        );
       }
     }
 

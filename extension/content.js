@@ -85,6 +85,9 @@
       }));
 
       setConnectionStatus('connected');
+      
+      // Rescan and send all existing chat messages to server
+      setTimeout(scanForChatMessages, 1000);
     };
 
     ws.onmessage = (event) => {
@@ -430,6 +433,86 @@
     console.log('[Muse Orchestrator] Response timeout — no new message detected');
   }
 
+  // ── Real-time Chat Monitor ─────────────────────────────
+  const seenMessageIds = new Set();
+
+  function startChatMonitor() {
+    // Initial scan
+    setTimeout(scanForChatMessages, 2000);
+
+    // MutationObserver to capture messages the instant they appear in DOM
+    const observer = new MutationObserver(() => {
+      scanForChatMessages();
+    });
+
+    try {
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
+    } catch (e) {}
+
+    // Fallback interval polling every 2 seconds
+    setInterval(scanForChatMessages, 2000);
+  }
+
+  function scanForChatMessages() {
+    // Muse chat items have [data-message-item="true"]
+    const messageEls = document.querySelectorAll('[data-message-item="true"]');
+    if (!messageEls || messageEls.length === 0) return;
+
+    messageEls.forEach(el => {
+      const msgId = el.getAttribute('data-message-id') || el.getAttribute('data-message-turn-id');
+      if (!msgId || seenMessageIds.has(msgId)) return;
+
+      const role = el.getAttribute('data-message-role') || 'unknown'; // 'assistant' or 'user'
+      let text = '';
+
+      // Strategy 1: accessibility surrogate (contains full clean text!)
+      const surrogate = el.querySelector('[data-message-accessibility-surrogate="true"]');
+      if (surrogate && surrogate.textContent) {
+        text = surrogate.textContent.trim();
+        // Remove "Assistant message: " or "User message: " prefix
+        text = text.replace(/^(Assistant|User)\s+message:\s*/i, '').trim();
+      }
+
+      // Strategy 2: prose / bubble text fallback
+      if (!text) {
+        const bodyEl = el.querySelector('[data-hatch-assistant-message-body="true"]') ||
+                       el.querySelector('.hatch-chat-groupable-bubble') ||
+                       el.querySelector('.prose');
+        if (bodyEl && bodyEl.textContent) {
+          text = bodyEl.textContent.trim();
+        }
+      }
+
+      if (!text) return; // Still rendering
+
+      // Mark as seen
+      seenMessageIds.add(msgId);
+
+      // Stream to server
+      const chatPayload = {
+        id: msgId,
+        role: role,
+        text: text,
+        timestamp: new Date().toLocaleTimeString()
+      };
+
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'chat_stream',
+          message: chatPayload
+        }));
+      }
+
+      // If it's assistant reply, update status to online
+      if (role === 'assistant') {
+        sendStatus('online');
+      }
+    });
+  }
+
   // ── Utilities ──────────────────────────────────────────
   function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -451,5 +534,6 @@
 
   // ── Start ──────────────────────────────────────────────
   init();
+  startChatMonitor();
 
 })();
