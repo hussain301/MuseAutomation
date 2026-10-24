@@ -210,117 +210,10 @@
       }
 
       sendStatus('online');
-
-      // Step 6: Wait for response from Muse agent
-      watchForResponse(messagesBefore, responseTimeout);
-
     } catch (err) {
       console.error('[Muse Orchestrator] Error:', err);
       sendAck(false, err.message);
       sendStatus('error');
-    }
-  }
-
-  // ── Response Detection ─────────────────────────────────
-  /**
-   * Count current chat messages (generic approach)
-   * Looks for common chat message patterns in the DOM
-   */
-  function countChatMessages() {
-    // Try response XPath first
-    if (config.responseXPath) {
-      const container = findElementByXPath(config.responseXPath);
-      if (container) return container.children.length;
-    }
-    // Generic: count elements that look like chat messages
-    // Muse likely has message divs — we'll watch for child count changes
-    // in the main chat area
-    return document.querySelectorAll('[class*="message"], [class*="Message"], [data-message]').length;
-  }
-
-  /**
-   * Watch for a new message to appear in the chat (the agent's response)
-   * Uses polling approach (more reliable than MutationObserver for dynamic apps)
-   */
-  function watchForResponse(messageCountBefore, timeout) {
-    const startTime = Date.now();
-    const pollInterval = 3000;  // Check every 3 seconds
-    let lastContent = '';
-
-    const checker = setInterval(() => {
-      // Timeout reached
-      if (Date.now() - startTime > timeout) {
-        clearInterval(checker);
-        sendResponseTimeout();
-        return;
-      }
-
-      // Try to detect new response
-      const response = detectNewResponse(messageCountBefore);
-      if (response && response !== lastContent) {
-        // Check if the response seems complete (no "typing" indicator)
-        // Wait a bit more to ensure the full response is captured
-        lastContent = response;
-        
-        // Wait 5 more seconds and check again for complete response
-        setTimeout(() => {
-          const finalResponse = detectNewResponse(messageCountBefore);
-          clearInterval(checker);
-          
-          if (finalResponse) {
-            sendResponse(finalResponse);
-          } else {
-            sendResponse(lastContent);
-          }
-        }, 5000);
-        
-        clearInterval(checker); // Stop polling, the setTimeout above will handle it
-      }
-    }, pollInterval);
-  }
-
-  /**
-   * Try to detect and extract the latest bot/agent response from the chat DOM
-   */
-  function detectNewResponse(messageCountBefore) {
-    try {
-      // Strategy 1: Use responseXPath if configured
-      if (config.responseXPath) {
-        const container = findElementByXPath(config.responseXPath);
-        if (container && container.children.length > messageCountBefore) {
-          const lastMsg = container.lastElementChild;
-          return lastMsg ? lastMsg.textContent.trim() : null;
-        }
-      }
-
-      // Strategy 2: Look for common chat message patterns
-      // Get all text-like elements in the chat area
-      const allMessages = document.querySelectorAll(
-        '[class*="message"], [class*="Message"], [data-message], [class*="response"], [class*="Response"], [class*="chat-bubble"], [class*="assistant"]'
-      );
-      
-      if (allMessages.length > messageCountBefore) {
-        const lastMsg = allMessages[allMessages.length - 1];
-        const text = lastMsg.textContent.trim();
-        if (text.length > 0) return text;
-      }
-
-      // Strategy 3: Generic — look at the main content area for new text
-      // This is a fallback and may not always work
-      const chatAreas = document.querySelectorAll('[class*="chat"], [class*="conversation"], main, [role="main"]');
-      for (const area of chatAreas) {
-        const children = area.querySelectorAll('div > div, div > p, article');
-        if (children.length > messageCountBefore) {
-          const lastChild = children[children.length - 1];
-          const text = lastChild.textContent.trim();
-          if (text.length > 10) return text;
-        }
-      }
-
-      return null;
-    } catch (e) {
-      console.error('[Muse Orchestrator] Error detecting response:', e);
-      return null;
     }
   }
 
@@ -416,20 +309,6 @@
     }
   }
 
-  function sendResponse(responseText) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'response', response: responseText }));
-    }
-    console.log('[Muse Orchestrator] Response captured:', responseText.substring(0, 100));
-  }
-
-  function sendResponseTimeout() {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'response_timeout' }));
-    }
-    console.log('[Muse Orchestrator] Response timeout — no new message detected');
-  }
-
   // ── Real-time Chat Monitor (Full Message & Streaming) ──
   const initialOldMessageIds = new Set();
   const trackedMessages = new Map(); // msgId => { lastSentText, debounceTimer, isFinal }
@@ -492,21 +371,28 @@
       const role = el.getAttribute('data-message-role') || 'unknown'; // 'assistant' or 'user'
       let text = '';
 
-      // Strategy 1: accessibility surrogate (contains the cleanest complete text)
+      // Strategy 1: Check accessibility surrogate
+      let surrogateText = '';
       const surrogate = el.querySelector('[data-message-accessibility-surrogate="true"]');
       if (surrogate && surrogate.textContent) {
-        text = surrogate.textContent.trim();
-        text = text.replace(/^(Assistant|User)\s+message:\s*/i, '').trim();
+        surrogateText = surrogate.textContent.trim().replace(/^(Assistant|User)\s+message:\s*/i, '').trim();
       }
 
-      // Strategy 2: prose / bubble text fallback
-      if (!text) {
-        const bodyEl = el.querySelector('[data-hatch-assistant-message-body="true"]') ||
-                       el.querySelector('.hatch-chat-groupable-bubble') ||
-                       el.querySelector('.prose');
-        if (bodyEl && bodyEl.textContent) {
-          text = bodyEl.textContent.trim();
-        }
+      // Strategy 2: Check prose / bubble innerText (contains full multi-paragraph text)
+      let proseText = '';
+      const bodyEl = el.querySelector('[data-hatch-assistant-message-body="true"]') ||
+                     el.querySelector('.prose') ||
+                     el.querySelector('.hatch-chat-groupable-bubble');
+      if (bodyEl) {
+        proseText = (bodyEl.innerText || bodyEl.textContent || '').trim();
+        proseText = proseText.replace(/^(You|Assistant):\s*/i, '').trim();
+      }
+
+      // Pick whichever text is longer / more complete!
+      if (proseText && surrogateText) {
+        text = proseText.length >= surrogateText.length ? proseText : surrogateText;
+      } else {
+        text = proseText || surrogateText || '';
       }
 
       if (!text) return; // Still empty or rendering
@@ -518,35 +404,26 @@
 
       let entry = trackedMessages.get(msgId);
       if (!entry) {
-        entry = { lastSentText: '', debounceTimer: null, isFinal: false };
+        entry = { lastSentText: '', debounceTimer: null };
         trackedMessages.set(msgId, entry);
       }
 
-      // If text hasn't changed and already sent as final, skip
-      if (entry.isFinal && text === entry.lastSentText) return;
+      // If text hasn't changed, skip
+      if (text === entry.lastSentText) return;
 
-      // If text changed:
-      if (text !== entry.lastSentText) {
-        clearTimeout(entry.debounceTimer);
-
-        if (!isStreaming) {
-          // Streaming has finished! Send the complete final message immediately!
-          entry.lastSentText = text;
-          entry.isFinal = true;
-          sendChatMessage(msgId, role, text);
-        } else {
-          // Still actively streaming words. Debounce 600ms so we get the full sentence!
-          entry.debounceTimer = setTimeout(() => {
-            entry.lastSentText = text;
-            sendChatMessage(msgId, role, text);
-          }, 600);
-        }
-      }
+      // When text changes, debounce to allow full sentence/response to complete!
+      clearTimeout(entry.debounceTimer);
+      entry.debounceTimer = setTimeout(() => {
+        entry.lastSentText = text;
+        sendChatMessage(msgId, role, text);
+      }, isStreaming ? 1000 : 400);
     });
   }
 
   function sendChatMessage(msgId, role, text) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    console.log('[Muse Orchestrator] Sending chat message:', role, text.substring(0, 60));
 
     ws.send(JSON.stringify({
       type: 'chat_stream',
