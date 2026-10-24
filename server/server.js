@@ -7,6 +7,7 @@
 const express = require('express');
 const http = require('http');
 const { WebSocketServer } = require('ws');
+const { exec } = require('child_process');
 const path = require('path');
 
 const app = express();
@@ -271,6 +272,37 @@ wss.on('connection', (ws) => {
           if (agentWs.readyState === 1) agentWs.send(configMsg);
         });
         sendLog('info', `⚙️ XPath config pushed to ${agents.size} agent(s).`);
+      }
+
+      // Close all Chrome browsers on this machine (taskkill)
+      if (data.type === 'close_all_browsers') {
+        const agentCount = agents.size;
+        sendLog('warning', `🔴 Closing ALL Chrome browsers on server machine... (${agentCount} agents will disconnect)`);
+        
+        exec('taskkill /F /IM chrome.exe', (err, stdout, stderr) => {
+          if (err) {
+            sendLog('error', `Failed to close browsers: ${err.message}`);
+          } else {
+            sendLog('success', `All Chrome browsers closed successfully.`);
+          }
+        });
+      }
+
+      // Close specific agent tabs (via extension command)
+      if (data.type === 'close_agents') {
+        const { targetIds } = data;
+        if (!targetIds || !Array.isArray(targetIds)) return;
+
+        sendLog('warning', `🔴 Closing ${targetIds.length} agent tab(s)...`);
+
+        agents.forEach((info, agentWs) => {
+          if (targetIds.includes(info.id) && agentWs.readyState === 1) {
+            agentWs.send(JSON.stringify({
+              type: 'command',
+              action: 'close_tab'
+            }));
+          }
+        });
       }
     }
   });

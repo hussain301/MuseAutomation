@@ -248,6 +248,40 @@
       border: 1px solid var(--border);
     }
     .btn-secondary:hover { background: rgba(255,255,255,0.1); }
+    .btn-kill {
+      padding: 6px 14px;
+      border: 1px solid rgba(239,83,80,0.4);
+      border-radius: 8px;
+      background: rgba(239,83,80,0.15);
+      color: #ff6b6b;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-kill:hover {
+      background: #ef5350;
+      color: #fff;
+    }
+    .btn-kill-selected {
+      padding: 6px 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(255,255,255,0.06);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-kill-selected:hover:not(:disabled) {
+      border-color: #ef5350;
+      color: #ff6b6b;
+    }
+    .btn-kill-selected:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
     .target-info { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
 
     /* ── Logs ───────────────────────────────── */
@@ -297,9 +331,13 @@
 <body>
   <header>
     <h1>🎛️ <span>Muse</span> Agent Orchestrator</h1>
-    <div class="conn-badge" id="serverStatus">
-      <div class="dot"></div>
-      <span>Connecting...</span>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <button class="btn-kill" onclick="closeAllBrowsers()">🔴 Close All Browsers</button>
+      <button class="btn-kill-selected" id="btnCloseSelected" onclick="closeSelectedAgents()" disabled>✖ Close Selected</button>
+      <div class="conn-badge" id="serverStatus">
+        <div class="dot"></div>
+        <span>Connecting...</span>
+      </div>
     </div>
   </header>
 
@@ -526,13 +564,33 @@ function selectAll() {
 function updateTargetInfo() {
   const info = document.getElementById('targetInfo');
   const btn = document.getElementById('btnSendSelected');
+  const btnClose = document.getElementById('btnCloseSelected');
   if (selectedAgentIds.size === 0) {
     info.textContent = 'Target: All agents';
     btn.disabled = true;
+    if (btnClose) btnClose.disabled = true;
   } else {
     info.textContent = `Target: ${selectedAgentIds.size} agent(s) selected`;
     btn.disabled = false;
+    if (btnClose) btnClose.disabled = false;
   }
+}
+
+// ── Close Browsers ─────────────────────────────────────────
+function closeAllBrowsers() {
+  if (!confirm('Are you sure you want to close ALL Chrome browsers on this server?')) return;
+  if (!ws || ws.readyState !== 1) return alert('Not connected to server!');
+  ws.send(JSON.stringify({ type: 'close_all_browsers' }));
+}
+
+function closeSelectedAgents() {
+  if (selectedAgentIds.size === 0) return alert('No agents selected!');
+  if (!confirm(`Close ${selectedAgentIds.size} selected agent(s)?`)) return;
+  if (!ws || ws.readyState !== 1) return alert('Not connected to server!');
+  ws.send(JSON.stringify({
+    type: 'close_agents',
+    targetIds: Array.from(selectedAgentIds)
+  }));
 }
 
 // ── Send Message ───────────────────────────────────────────

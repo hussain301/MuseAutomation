@@ -132,6 +132,15 @@
       typeAndSendMessage(data.message, newChat, responseTimeout);
     }
 
+    if (data.action === 'close_tab') {
+      console.log('[Muse Orchestrator] Received close_tab command. Closing...');
+      try {
+        window.close();
+      } catch (e) {}
+      // Fallback: navigate to about:blank to effectively kill the tab
+      setTimeout(() => { window.location.href = 'about:blank'; }, 500);
+    }
+
     if (data.action === 'update_config') {
       const c = data.config || {};
       if (c.inputXPath) config.inputXPath = c.inputXPath;
