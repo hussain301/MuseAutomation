@@ -85,9 +85,6 @@
       }));
 
       setConnectionStatus('connected');
-      
-      // Rescan and send all existing chat messages to server
-      setTimeout(scanForChatMessages, 1000);
     };
 
     ws.onmessage = (event) => {
@@ -433,16 +430,38 @@
     console.log('[Muse Orchestrator] Response timeout — no new message detected');
   }
 
-  // ── Real-time Chat Monitor ─────────────────────────────
+  // ── Real-time Chat Monitor (NEW Messages Only) ────────
   const seenMessageIds = new Set();
+  let isInitialScanDone = false;
+
+  function markExistingMessagesAsSeen() {
+    const messageEls = document.querySelectorAll('[data-message-item="true"]');
+    messageEls.forEach(el => {
+      const msgId = el.getAttribute('data-message-id') || el.getAttribute('data-message-turn-id');
+      if (msgId) {
+        seenMessageIds.add(msgId);
+      }
+    });
+  }
 
   function startChatMonitor() {
-    // Initial scan
-    setTimeout(scanForChatMessages, 2000);
+    // Immediately mark whatever is already in DOM as seen
+    markExistingMessagesAsSeen();
 
-    // MutationObserver to capture messages the instant they appear in DOM
+    // Allow 2.5s for initial thread hydration to finish, then seal old messages
+    setTimeout(() => {
+      markExistingMessagesAsSeen();
+      isInitialScanDone = true;
+      console.log(`[Muse Orchestrator] Ignored ${seenMessageIds.size} old messages. Listening for NEW messages only.`);
+    }, 2500);
+
+    // MutationObserver to capture ONLY new messages that arrive
     const observer = new MutationObserver(() => {
-      scanForChatMessages();
+      if (isInitialScanDone) {
+        scanForChatMessages();
+      } else {
+        markExistingMessagesAsSeen();
+      }
     });
 
     try {
@@ -452,8 +471,12 @@
       });
     } catch (e) {}
 
-    // Fallback interval polling every 2 seconds
-    setInterval(scanForChatMessages, 2000);
+    // Fallback interval polling every 2 seconds for new messages
+    setInterval(() => {
+      if (isInitialScanDone) {
+        scanForChatMessages();
+      }
+    }, 2000);
   }
 
   function scanForChatMessages() {
