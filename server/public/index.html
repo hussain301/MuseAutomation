@@ -803,9 +803,16 @@ function appendFeedItem(agentNumber, agentName, msg) {
   if (empty) empty.remove();
 
   const list = document.getElementById('feedList');
-  const isAssistant = msg.role === 'assistant';
+  const existing = document.getElementById(`feed-msg-${msg.id}`);
+  if (existing) {
+    const textEl = existing.querySelector('.feed-text');
+    if (textEl) textEl.textContent = msg.text;
+    return;
+  }
 
+  const isAssistant = msg.role === 'assistant';
   const item = document.createElement('div');
+  item.id = `feed-msg-${msg.id}`;
   item.className = `feed-item ${msg.role}`;
   item.innerHTML = `
     <div class="feed-header">
@@ -882,7 +889,17 @@ function appendModalMessage(msg) {
   if (empty) empty.remove();
 
   const isAssistant = msg.role === 'assistant';
+  const existing = document.getElementById(`modal-msg-${msg.id}`);
+  if (existing) {
+    const bubble = existing.querySelector('.chat-msg-bubble');
+    if (bubble) {
+      bubble.innerHTML = `${isAssistant ? '<div style="font-size:11px;font-weight:700;color:var(--cyan);margin-bottom:4px;">🤖 Muse Agent</div>' : ''}${escHtml(msg.text)}`;
+    }
+    return;
+  }
+
   const el = document.createElement('div');
+  el.id = `modal-msg-${msg.id}`;
   el.className = `chat-msg ${isAssistant ? 'assistant' : 'user'}`;
   el.innerHTML = `
     <div class="chat-msg-bubble">

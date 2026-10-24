@@ -430,8 +430,9 @@
     console.log('[Muse Orchestrator] Response timeout — no new message detected');
   }
 
-  // ── Real-time Chat Monitor (NEW Messages Only) ────────
-  const seenMessageIds = new Set();
+  // ── Real-time Chat Monitor (Full Message & Streaming) ──
+  const initialOldMessageIds = new Set();
+  const trackedMessages = new Map(); // msgId => { lastSentText, debounceTimer, isFinal }
   let isInitialScanDone = false;
 
   function markExistingMessagesAsSeen() {
@@ -439,23 +440,23 @@
     messageEls.forEach(el => {
       const msgId = el.getAttribute('data-message-id') || el.getAttribute('data-message-turn-id');
       if (msgId) {
-        seenMessageIds.add(msgId);
+        initialOldMessageIds.add(msgId);
       }
     });
   }
 
   function startChatMonitor() {
-    // Immediately mark whatever is already in DOM as seen
+    // Immediately mark whatever is already in DOM as old
     markExistingMessagesAsSeen();
 
     // Allow 2.5s for initial thread hydration to finish, then seal old messages
     setTimeout(() => {
       markExistingMessagesAsSeen();
       isInitialScanDone = true;
-      console.log(`[Muse Orchestrator] Ignored ${seenMessageIds.size} old messages. Listening for NEW messages only.`);
+      console.log(`[Muse Orchestrator] Ignored ${initialOldMessageIds.size} old messages. Listening for NEW messages only.`);
     }, 2500);
 
-    // MutationObserver to capture ONLY new messages that arrive
+    // MutationObserver to capture new messages as they stream in
     const observer = new MutationObserver(() => {
       if (isInitialScanDone) {
         scanForChatMessages();
@@ -467,35 +468,34 @@
     try {
       observer.observe(document.body, {
         childList: true,
-        subtree: true
+        subtree: true,
+        characterData: true
       });
     } catch (e) {}
 
-    // Fallback interval polling every 2 seconds for new messages
+    // Fallback interval polling every 1 second
     setInterval(() => {
       if (isInitialScanDone) {
         scanForChatMessages();
       }
-    }, 2000);
+    }, 1000);
   }
 
   function scanForChatMessages() {
-    // Muse chat items have [data-message-item="true"]
     const messageEls = document.querySelectorAll('[data-message-item="true"]');
     if (!messageEls || messageEls.length === 0) return;
 
     messageEls.forEach(el => {
       const msgId = el.getAttribute('data-message-id') || el.getAttribute('data-message-turn-id');
-      if (!msgId || seenMessageIds.has(msgId)) return;
+      if (!msgId || initialOldMessageIds.has(msgId)) return;
 
       const role = el.getAttribute('data-message-role') || 'unknown'; // 'assistant' or 'user'
       let text = '';
 
-      // Strategy 1: accessibility surrogate (contains full clean text!)
+      // Strategy 1: accessibility surrogate (contains the cleanest complete text)
       const surrogate = el.querySelector('[data-message-accessibility-surrogate="true"]');
       if (surrogate && surrogate.textContent) {
         text = surrogate.textContent.trim();
-        // Remove "Assistant message: " or "User message: " prefix
         text = text.replace(/^(Assistant|User)\s+message:\s*/i, '').trim();
       }
 
@@ -509,31 +509,58 @@
         }
       }
 
-      if (!text) return; // Still rendering
+      if (!text) return; // Still empty or rendering
 
-      // Mark as seen
-      seenMessageIds.add(msgId);
+      // Check if Muse is currently still streaming words
+      const isStreaming = el.querySelector('[data-hatch-markdown-streaming="true"]') !== null ||
+                          el.getAttribute('aria-busy') === 'true' ||
+                          el.querySelector('[aria-busy="true"]') !== null;
 
-      // Stream to server
-      const chatPayload = {
+      let entry = trackedMessages.get(msgId);
+      if (!entry) {
+        entry = { lastSentText: '', debounceTimer: null, isFinal: false };
+        trackedMessages.set(msgId, entry);
+      }
+
+      // If text hasn't changed and already sent as final, skip
+      if (entry.isFinal && text === entry.lastSentText) return;
+
+      // If text changed:
+      if (text !== entry.lastSentText) {
+        clearTimeout(entry.debounceTimer);
+
+        if (!isStreaming) {
+          // Streaming has finished! Send the complete final message immediately!
+          entry.lastSentText = text;
+          entry.isFinal = true;
+          sendChatMessage(msgId, role, text);
+        } else {
+          // Still actively streaming words. Debounce 600ms so we get the full sentence!
+          entry.debounceTimer = setTimeout(() => {
+            entry.lastSentText = text;
+            sendChatMessage(msgId, role, text);
+          }, 600);
+        }
+      }
+    });
+  }
+
+  function sendChatMessage(msgId, role, text) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    ws.send(JSON.stringify({
+      type: 'chat_stream',
+      message: {
         id: msgId,
         role: role,
         text: text,
         timestamp: new Date().toLocaleTimeString()
-      };
-
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: 'chat_stream',
-          message: chatPayload
-        }));
       }
+    }));
 
-      // If it's assistant reply, update status to online
-      if (role === 'assistant') {
-        sendStatus('online');
-      }
-    });
+    if (role === 'assistant') {
+      sendStatus('online');
+    }
   }
 
   // ── Utilities ──────────────────────────────────────────
