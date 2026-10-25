@@ -78,6 +78,7 @@ wss.on('connection', (ws) => {
   ws.on('pong', () => { ws.isAlive = true; });
 
   ws.on('message', (raw) => {
+    ws.isAlive = true;
     let data;
     try {
       data = JSON.parse(raw);

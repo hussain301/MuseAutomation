@@ -1,6 +1,10 @@
 // ============================================================
-//  Muse Agent Orchestrator — Background Service Worker
-//  Runs in extension context (bypasses HTTPS mixed-content blocks)
+//  Muse Agent Orchestrator — Background Service Worker v3
+//  Features:
+//   - Persistent WebSocket (Bypasses HTTPS mixed-content blocks)
+//   - Tab auto-discovery (muse.ai, *.muse.ai, etc.)
+//   - Auto content script injection if disconnected
+//   - Service worker keepalive prevention
 // ============================================================
 
 let ws = null;
@@ -9,10 +13,27 @@ let config = {
   serverUrl: 'ws://137.23.50.81:3000',
   agentName: ''
 };
+let isConnecting = false;
 let reconnectTimer = null;
 let reconnectDelay = 2000;
-const MAX_RECONNECT_DELAY = 20000;
+const MAX_RECONNECT_DELAY = 15000;
 let pingInterval = null;
+
+// ── Tab Discovery Helper ─────────────────────────────────
+async function findMuseTabs() {
+  let tabs = [];
+  try {
+    tabs = await chrome.tabs.query({ url: ['*://muse.ai/*', '*://*.muse.ai/*'] });
+  } catch (e) {}
+
+  if (!tabs || tabs.length === 0) {
+    try {
+      const allTabs = await chrome.tabs.query({});
+      tabs = allTabs.filter(t => t.url && t.url.toLowerCase().includes('muse.ai'));
+    } catch (e) {}
+  }
+  return tabs || [];
+}
 
 // ── Initialize ──────────────────────────────────────────
 async function init() {
@@ -37,37 +58,54 @@ async function init() {
 
 // ── WebSocket Connection ─────────────────────────────────
 async function connectToServer() {
-  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-    try { ws.close(); } catch (e) {}
+  // If already open or currently connecting, don't create duplicate
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    setConnectionStatus('connected');
+    return;
   }
+  if (isConnecting) return;
+
+  isConnecting = true;
   clearTimeout(reconnectTimer);
   clearInterval(pingInterval);
 
   if (!config.serverUrl) {
     console.log('[Background] No server URL configured.');
     setConnectionStatus('disconnected');
+    isConnecting = false;
     return;
   }
 
   console.log('[Background] Connecting to:', config.serverUrl);
 
   try {
+    if (ws) {
+      ws.onopen = null;
+      ws.onmessage = null;
+      ws.onclose = null;
+      ws.onerror = null;
+      try { ws.close(); } catch (e) {}
+    }
+
     ws = new WebSocket(config.serverUrl);
   } catch (err) {
-    console.error('[Background] WebSocket init failed:', err);
+    console.error('[Background] WebSocket constructor error:', err);
+    isConnecting = false;
+    setConnectionStatus('disconnected');
     scheduleReconnect();
     return;
   }
 
   ws.onopen = async () => {
-    console.log('[Background] Connected to Orchestrator ✓');
+    isConnecting = false;
     reconnectDelay = 2000;
+    console.log('[Background] Connected to Orchestrator ✓');
     setConnectionStatus('connected');
 
     // Get current muse tab URL if available
     let currentUrl = 'https://muse.ai';
     try {
-      const tabs = await chrome.tabs.query({ url: '*://*.muse.ai/*' });
+      const tabs = await findMuseTabs();
       if (tabs.length > 0 && tabs[0].url) {
         currentUrl = tabs[0].url;
       }
@@ -82,14 +120,16 @@ async function connectToServer() {
       url: currentUrl
     });
 
-    // Start keepalive ping every 25 seconds
+    // Keepalive ping every 15 seconds
     pingInterval = setInterval(() => {
       if (ws && ws.readyState === WebSocket.OPEN) {
         try {
           ws.send(JSON.stringify({ type: 'ping' }));
         } catch (e) {}
       }
-    }, 25000);
+      // Keep worker alive with async chrome API
+      try { chrome.runtime.getPlatformInfo(() => {}); } catch (e) {}
+    }, 15000);
   };
 
   ws.onmessage = (event) => {
@@ -113,21 +153,23 @@ async function connectToServer() {
   };
 
   ws.onclose = (e) => {
-    console.log('[Background] Disconnected code:', e.code, e.reason);
+    isConnecting = false;
+    console.log('[Background] Disconnected from server (code:', e.code, ')');
     setConnectionStatus('disconnected');
     clearInterval(pingInterval);
     scheduleReconnect();
   };
 
   ws.onerror = (e) => {
-    console.error('[Background] WebSocket error:', e);
+    isConnecting = false;
+    console.error('[Background] WebSocket error');
   };
 }
 
 function scheduleReconnect() {
   clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(() => {
-    console.log('[Background] Attempting reconnection...');
+    console.log('[Background] Reconnecting now...');
     connectToServer();
   }, reconnectDelay);
   reconnectDelay = Math.min(reconnectDelay * 1.5, MAX_RECONNECT_DELAY);
@@ -139,7 +181,7 @@ function sendServerMessage(msg) {
       ws.send(JSON.stringify(msg));
       return true;
     } catch (e) {
-      console.error('[Background] Failed to send to server:', e);
+      console.error('[Background] Failed to send message:', e);
     }
   }
   return false;
@@ -151,12 +193,12 @@ function setConnectionStatus(status) {
 
 // ── Handle Server Commands ───────────────────────────────
 async function handleServerCommand(data) {
-  console.log('[Background] Received command:', data);
+  console.log('[Background] Received command from server:', data);
 
   // Command 1: Close Tab(s)
   if (data.action === 'close_tab') {
     try {
-      const tabs = await chrome.tabs.query({ url: '*://*.muse.ai/*' });
+      const tabs = await findMuseTabs();
       if (tabs.length > 0) {
         const tabIds = tabs.map(t => t.id);
         await chrome.tabs.remove(tabIds);
@@ -168,26 +210,48 @@ async function handleServerCommand(data) {
     return;
   }
 
-  // Command 2: Send Message or Update Config -> Forward to Content Script
-  try {
-    const tabs = await chrome.tabs.query({ url: '*://*.muse.ai/*' });
+  // Command 2: Send Message or Update Config
+  if (data.action === 'send_message' || data.action === 'update_config') {
+    const tabs = await findMuseTabs();
     if (tabs.length === 0) {
       console.warn('[Background] No muse.ai tabs open to receive command!');
       sendServerMessage({
         type: 'ack',
         success: false,
-        message: 'No open muse.ai tab found in this browser profile.'
+        message: 'No open muse.ai tab found! Please open https://muse.ai'
       });
       return;
     }
 
-    // Forward to the first/active muse tab
+    // Target the active tab or the first one found
     const targetTab = tabs.find(t => t.active) || tabs[0];
-    chrome.tabs.sendMessage(targetTab.id, data).catch((err) => {
-      console.error('[Background] Failed to send command to tab:', err);
-    });
+    await deliverCommandToTab(targetTab, data);
+  }
+}
+
+// Deliver message to tab with automatic script re-injection fallback
+async function deliverCommandToTab(targetTab, data) {
+  try {
+    await chrome.tabs.sendMessage(targetTab.id, data);
+    console.log('[Background] Command delivered to tab:', targetTab.id);
   } catch (err) {
-    console.error('[Background] Error routing command:', err);
+    console.warn('[Background] sendMessage failed (' + err.message + '), auto-injecting content.js...');
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: targetTab.id },
+        files: ['content.js']
+      });
+      await new Promise(resolve => setTimeout(resolve, 400));
+      await chrome.tabs.sendMessage(targetTab.id, data);
+      console.log('[Background] Command delivered successfully after re-injection!');
+    } catch (err2) {
+      console.error('[Background] Could not deliver command to tab:', err2);
+      sendServerMessage({
+        type: 'ack',
+        success: false,
+        message: 'Failed to communicate with Muse tab. Please refresh the Muse tab (F5)!'
+      });
+    }
   }
 }
 
@@ -195,16 +259,26 @@ async function handleServerCommand(data) {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || !msg.type) return;
 
+  // Popup requesting current connection status
+  if (msg.type === 'get_status') {
+    const isLive = ws && ws.readyState === WebSocket.OPEN;
+    sendResponse({ status: isLive ? 'connected' : 'disconnected' });
+    return true;
+  }
+
   // Popup requested reconnect with new config
   if (msg.type === 'reconnect') {
     chrome.storage.local.get(['serverUrl', 'agentName']).then((stored) => {
       config.serverUrl = stored.serverUrl || config.serverUrl;
       config.agentName = stored.agentName || config.agentName;
-      reconnectDelay = 1000;
+      if (ws) {
+        try { ws.close(); } catch (e) {}
+      }
+      isConnecting = false;
       connectToServer();
       sendResponse({ status: 'reconnecting' });
     });
-    return true; // async response
+    return true;
   }
 
   // Relay chat stream from content script to server
@@ -226,10 +300,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
-// ── Chrome Alarms for Service Worker Keepalive ──────────
-chrome.alarms.create('keepAlive', { periodInMinutes: 0.5 });
+// ── Keepalive Port & Navigation Listeners ────────────────
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name === 'keepAlive') {
+    port.onDisconnect.addListener(() => {});
+  }
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'complete' && tab.url && tab.url.toLowerCase().includes('muse.ai')) {
+    sendServerMessage({
+      type: 'status',
+      status: 'online',
+      url: tab.url
+    });
+  }
+});
+
+// Chrome alarm backup keepalive
+chrome.alarms.create('keepAliveAlarm', { periodInMinutes: 0.5 });
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === 'keepAlive') {
+  if (alarm.name === 'keepAliveAlarm') {
     if (!ws || ws.readyState === WebSocket.CLOSED) {
       connectToServer();
     }

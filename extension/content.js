@@ -1,18 +1,24 @@
 // ============================================================
-//  Muse Agent Orchestrator — Content Script v3
+//  Muse Agent Orchestrator — Content Script v4
 //  Injected into muse.ai pages.
 //
 //  Features:
-//   - Relays through background service worker (No Mixed Content block)
-//   - XPath-based DOM targeting
-//   - New Chat button click (optional)
-//   - Auto-type + Enter key to send
-//   - Real-time response streaming capture via MutationObserver
+//   - Keepalive port to prevent Service Worker sleep
+//   - Resilient DOM targeting (XPath + automatic fallbacks)
 //   - React/Vue/Angular compatible input handling
+//   - Dual dispatch: Enter key + Send Button click
+//   - Real-time chat response capture & streaming
 // ============================================================
 
 (function () {
   'use strict';
+
+  // Prevent double injection
+  if (window.__museOrchestratorLoaded) {
+    console.log('[Muse Orchestrator] Already active on this page.');
+    return;
+  }
+  window.__museOrchestratorLoaded = true;
 
   // ── State ──────────────────────────────────────────────
   let config = {
@@ -21,9 +27,23 @@
     responseXPath: ''
   };
 
+  // ── Service Worker Keepalive Port ──────────────────────
+  let keepAlivePort = null;
+  function maintainKeepAlivePort() {
+    try {
+      keepAlivePort = chrome.runtime.connect({ name: 'keepAlive' });
+      keepAlivePort.onDisconnect.addListener(() => {
+        setTimeout(maintainKeepAlivePort, 2000);
+      });
+    } catch (e) {
+      setTimeout(maintainKeepAlivePort, 5000);
+    }
+  }
+  maintainKeepAlivePort();
+
   // ── Initialize ─────────────────────────────────────────
   async function init() {
-    console.log('[Muse Orchestrator] Content script loaded on', window.location.href);
+    console.log('[Muse Orchestrator] Content script initialized on', window.location.href);
 
     const stored = await chrome.storage.local.get([
       'inputXPath', 'newChatButtonXPath', 'responseXPath'
@@ -33,7 +53,6 @@
     if (stored.newChatButtonXPath) config.newChatButtonXPath = stored.newChatButtonXPath;
     if (stored.responseXPath) config.responseXPath = stored.responseXPath;
 
-    // Notify background script that this tab is active and online
     sendStatus('online');
   }
 
@@ -64,9 +83,7 @@
 
     if (data.action === 'close_tab') {
       console.log('[Muse Orchestrator] Received close_tab command.');
-      try {
-        window.close();
-      } catch (e) {}
+      try { window.close(); } catch (e) {}
       setTimeout(() => { window.location.href = 'about:blank'; }, 500);
     }
 
@@ -92,57 +109,63 @@
 
       // Step 1: Open new chat if requested
       if (openNewChat) {
-        console.log('[Muse Orchestrator] Opening new chat...');
-        const newChatBtn = findElementByXPath(config.newChatButtonXPath);
-        if (!newChatBtn) {
-          throw new Error(`New Chat button not found! XPath: "${config.newChatButtonXPath}"`);
+        console.log('[Muse Orchestrator] Attempting to open new chat...');
+        const newChatBtn = findNewChatButton();
+        if (newChatBtn) {
+          newChatBtn.click();
+          await sleep(2000);
+        } else {
+          console.warn('[Muse Orchestrator] New Chat button not found; continuing in current chat.');
         }
-        newChatBtn.click();
-        await sleep(2000); // Wait for new chat to load
       }
 
-      // Step 2: Find the textarea
+      // Step 2: Find the input element (try XPath, then smart DOM scan)
       let inputEl = null;
-      for (let attempt = 0; attempt < 5; attempt++) {
-        inputEl = findElementByXPath(config.inputXPath);
+      for (let attempt = 0; attempt < 8; attempt++) {
+        inputEl = findInputElement();
         if (inputEl) break;
-        await sleep(1000);
+        await sleep(500);
       }
 
       if (!inputEl) {
-        throw new Error(`Input textarea not found after retries! XPath: "${config.inputXPath}"`);
+        throw new Error('Input textarea / chatbox not found on this page!');
       }
 
       // Step 3: Type the message into the textarea
       await setInputValue(inputEl, message);
       await sleep(300);
 
-      // Step 4: Press Enter to send
+      // Step 4: Dispatch Enter key
       pressEnter(inputEl);
+      await sleep(300);
+
+      // Step 5: Also click Send Button if one exists
+      clickSendButton(inputEl);
       await sleep(500);
 
-      // Verify the input was cleared (indicates message was sent)
-      const inputAfter = findElementByXPath(config.inputXPath);
+      // Step 6: Verify send
+      const inputAfter = findInputElement();
       const wasSent = !inputAfter || inputAfter.value === '' || inputAfter.value !== message;
       
       if (wasSent) {
-        sendAck(true, 'Message typed & Enter pressed ✓');
+        sendAck(true, 'Message typed & sent ✓');
       } else {
-        // Try pressing Enter again
+        // Retry Enter & button click once more
         pressEnter(inputAfter || inputEl);
+        clickSendButton(inputAfter || inputEl);
         await sleep(300);
-        sendAck(true, 'Message sent (double Enter) ✓');
+        sendAck(true, 'Message sent (retry) ✓');
       }
 
       sendStatus('online');
     } catch (err) {
-      console.error('[Muse Orchestrator] Error:', err);
+      console.error('[Muse Orchestrator] Error during typeAndSendMessage:', err);
       sendAck(false, err.message);
       sendStatus('error');
     }
   }
 
-  // ── DOM Helpers ────────────────────────────────────────
+  // ── DOM Helpers with Resilient Fallbacks ────────────────
   function findElementByXPath(xpath) {
     if (!xpath) return null;
     try {
@@ -152,9 +175,60 @@
       );
       return result.singleNodeValue;
     } catch (e) {
-      console.error('[Muse Orchestrator] Invalid XPath:', xpath, e);
       return null;
     }
+  }
+
+  function findInputElement() {
+    // 1. Try configured XPath
+    if (config.inputXPath) {
+      const el = findElementByXPath(config.inputXPath);
+      if (el) return el;
+    }
+
+    // 2. Try textareas (prefer visible ones)
+    const textareas = Array.from(document.querySelectorAll('textarea'));
+    const visibleTextarea = textareas.find(t => t.offsetParent !== null || t.offsetWidth > 0 || t.offsetHeight > 0);
+    if (visibleTextarea) return visibleTextarea;
+    if (textareas.length > 0) return textareas[0];
+
+    // 3. Try contenteditable div
+    const editable = document.querySelector('div[contenteditable="true"]');
+    if (editable) return editable;
+
+    // 4. Try input fields
+    const inputs = Array.from(document.querySelectorAll('input[type="text"], input:not([type])'));
+    const visibleInput = inputs.find(i => i.offsetParent !== null || i.offsetWidth > 0);
+    if (visibleInput) return visibleInput;
+
+    return null;
+  }
+
+  function findNewChatButton() {
+    if (config.newChatButtonXPath) {
+      const el = findElementByXPath(config.newChatButtonXPath);
+      if (el) return el;
+    }
+
+    // Fallback: look for button or link with "new chat"
+    const buttons = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+    return buttons.find(b => {
+      const text = (b.innerText || b.textContent || b.getAttribute('aria-label') || '').toLowerCase();
+      return text.includes('new chat') || text.includes('new conversation') || text.includes('start chat');
+    }) || null;
+  }
+
+  function clickSendButton(inputEl) {
+    try {
+      const formOrContainer = inputEl ? inputEl.closest('form, [class*="input"], [class*="chat"], div') : document;
+      if (formOrContainer) {
+        const btn = formOrContainer.querySelector('button[type="submit"], button[aria-label*="send" i], button[aria-label*="submit" i]');
+        if (btn) {
+          btn.click();
+          return;
+        }
+      }
+    } catch (e) {}
   }
 
   /**
@@ -189,7 +263,7 @@
     element.dispatchEvent(new Event('input', { bubbles: true }));
     element.dispatchEvent(new Event('change', { bubbles: true }));
     
-    // Also dispatch React-specific synthetic event
+    // Also dispatch React synthetic input event
     const nativeInputEvent = new InputEvent('input', {
       bubbles: true,
       cancelable: true,
@@ -203,18 +277,18 @@
    * Simulate pressing Enter key
    */
   function pressEnter(element) {
-    element.dispatchEvent(new KeyboardEvent('keydown', {
-      key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
-      bubbles: true, cancelable: true
-    }));
-    element.dispatchEvent(new KeyboardEvent('keypress', {
-      key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
-      bubbles: true, cancelable: true
-    }));
-    element.dispatchEvent(new KeyboardEvent('keyup', {
-      key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
-      bubbles: true, cancelable: true
-    }));
+    const eventInit = {
+      key: 'Enter',
+      code: 'Enter',
+      keyCode: 13,
+      which: 13,
+      bubbles: true,
+      cancelable: true,
+      composed: true
+    };
+    element.dispatchEvent(new KeyboardEvent('keydown', eventInit));
+    element.dispatchEvent(new KeyboardEvent('keypress', eventInit));
+    element.dispatchEvent(new KeyboardEvent('keyup', eventInit));
   }
 
   // ── Relay Communication to Background Worker ───────────
@@ -250,17 +324,14 @@
   }
 
   function startChatMonitor() {
-    // Immediately mark whatever is already in DOM as old
     markExistingMessagesAsSeen();
 
-    // Allow 2.5s for initial thread hydration to finish, then seal old messages
     setTimeout(() => {
       markExistingMessagesAsSeen();
       isInitialScanDone = true;
       console.log(`[Muse Orchestrator] Ignored ${initialOldMessageIds.size} old messages. Listening for NEW messages only.`);
     }, 2500);
 
-    // MutationObserver to capture new messages as they stream in
     const observer = new MutationObserver(() => {
       if (isInitialScanDone) {
         scanForChatMessages();
@@ -277,7 +348,6 @@
       });
     } catch (e) {}
 
-    // Fallback interval polling every 1 second
     setInterval(() => {
       if (isInitialScanDone) {
         scanForChatMessages();
@@ -293,17 +363,15 @@
       const msgId = el.getAttribute('data-message-id') || el.getAttribute('data-message-turn-id');
       if (!msgId || initialOldMessageIds.has(msgId)) return;
 
-      const role = el.getAttribute('data-message-role') || 'unknown'; // 'assistant' or 'user'
+      const role = el.getAttribute('data-message-role') || 'unknown';
       let text = '';
 
-      // Strategy 1: Check accessibility surrogate
       let surrogateText = '';
       const surrogate = el.querySelector('[data-message-accessibility-surrogate="true"]');
       if (surrogate && surrogate.textContent) {
         surrogateText = surrogate.textContent.trim().replace(/^(Assistant|User)\s+message:\s*/i, '').trim();
       }
 
-      // Strategy 2: Check prose / bubble innerText (contains full multi-paragraph text)
       let proseText = '';
       const bodyEl = el.querySelector('[data-hatch-assistant-message-body="true"]') ||
                      el.querySelector('.prose') ||
@@ -313,16 +381,14 @@
         proseText = proseText.replace(/^(You|Assistant):\s*/i, '').trim();
       }
 
-      // Pick whichever text is longer / more complete
       if (proseText && surrogateText) {
         text = proseText.length >= surrogateText.length ? proseText : surrogateText;
       } else {
         text = proseText || surrogateText || '';
       }
 
-      if (!text) return; // Still empty or rendering
+      if (!text) return;
 
-      // Check if Muse is currently still streaming words
       const isStreaming = el.querySelector('[data-hatch-markdown-streaming="true"]') !== null ||
                           el.getAttribute('aria-busy') === 'true' ||
                           el.querySelector('[aria-busy="true"]') !== null;
@@ -333,10 +399,8 @@
         trackedMessages.set(msgId, entry);
       }
 
-      // If text hasn't changed, skip
       if (text === entry.lastSentText) return;
 
-      // When text changes, debounce to allow full sentence/response to complete!
       clearTimeout(entry.debounceTimer);
       entry.debounceTimer = setTimeout(() => {
         entry.lastSentText = text;
@@ -346,8 +410,6 @@
   }
 
   function sendChatMessage(msgId, role, text) {
-    console.log('[Muse Orchestrator] Relaying chat message to background:', role, text.substring(0, 60));
-
     chrome.runtime.sendMessage({
       type: 'chat_stream',
       message: {

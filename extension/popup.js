@@ -1,5 +1,5 @@
 // popup.js — Extension Popup Logic
-// Loads/saves config from chrome.storage, shows connection status
+// Loads/saves config from chrome.storage, shows live connection status
 
 document.addEventListener('DOMContentLoaded', async () => {
   const serverUrlInput = document.getElementById('serverUrl');
@@ -13,10 +13,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   serverUrlInput.value = stored.serverUrl || 'ws://137.23.50.81:3000';
   agentNameInput.value = stored.agentName || `Agent-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
-  // Show connection status
+  // Default display from storage
   updateStatus(stored.connectionStatus || 'disconnected');
 
-  // Listen for status updates from background script
+  // Query live status directly from background service worker
+  try {
+    chrome.runtime.sendMessage({ type: 'get_status' }, (resp) => {
+      if (resp && resp.status) {
+        updateStatus(resp.status);
+      }
+    });
+  } catch (e) {}
+
+  // Listen for status changes
   chrome.storage.onChanged.addListener((changes) => {
     if (changes.connectionStatus) {
       updateStatus(changes.connectionStatus.newValue);
@@ -30,7 +39,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (!url) { alert('Server URL is required!'); return; }
 
-    // Auto-prepend ws:// if user entered just IP:port
     if (!url.startsWith('ws://') && !url.startsWith('wss://')) {
       url = 'ws://' + url;
     }
@@ -44,9 +52,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Notify muse.ai tabs
     try {
-      const tabs = await chrome.tabs.query({ url: '*://*.muse.ai/*' });
+      const tabs = await chrome.tabs.query({});
       tabs.forEach(tab => {
-        chrome.tabs.sendMessage(tab.id, { type: 'config_updated' }).catch(() => {});
+        if (tab.url && tab.url.toLowerCase().includes('muse.ai')) {
+          chrome.tabs.sendMessage(tab.id, { type: 'config_updated' }).catch(() => {});
+        }
       });
     } catch (e) {}
 

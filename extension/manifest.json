@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Muse Agent Orchestrator",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Connects this browser's Muse AI agent to the central Orchestrator server for coordinated messaging.",
   "permissions": [
     "storage",
     "activeTab",
     "tabs",
-    "alarms"
+    "alarms",
+    "scripting"
   ],
   "host_permissions": [
     "*://*.muse.ai/*",
