@@ -8,10 +8,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   const statusBar = document.getElementById('statusBar');
   const statusText = document.getElementById('statusText');
 
-  // Load saved config
+  // Load saved config with default remote IP
   const stored = await chrome.storage.local.get(['serverUrl', 'agentName', 'connectionStatus']);
-  serverUrlInput.value = stored.serverUrl || 'ws://137.23.50.81:3000';
+  const defaultUrl = 'ws://137.23.50.81:3000';
+  const effectiveUrl = (stored.serverUrl && stored.serverUrl !== 'ws://localhost:3000') ? stored.serverUrl : defaultUrl;
+  serverUrlInput.value = effectiveUrl;
   agentNameInput.value = stored.agentName || `Agent-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+  if (stored.serverUrl !== effectiveUrl) {
+    chrome.storage.local.set({ serverUrl: effectiveUrl }).catch(() => {});
+  }
 
   // Default display from storage
   updateStatus(stored.connectionStatus || 'disconnected');

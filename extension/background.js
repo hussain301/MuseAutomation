@@ -45,7 +45,11 @@ async function init() {
     await chrome.storage.local.set({ agentId });
   }
 
-  config.serverUrl = stored.serverUrl || 'ws://137.23.50.81:3000';
+  const defaultUrl = 'ws://137.23.50.81:3000';
+  config.serverUrl = (stored.serverUrl && stored.serverUrl !== 'ws://localhost:3000')
+    ? stored.serverUrl
+    : defaultUrl;
+
   config.agentName = stored.agentName || ('Agent-' + Math.random().toString(36).substring(2, 6).toUpperCase());
   
   await chrome.storage.local.set({
