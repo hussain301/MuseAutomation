@@ -85,6 +85,11 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    if (data.type === 'ping') {
+      try { ws.send(JSON.stringify({ type: 'pong' })); } catch (e) {}
+      return;
+    }
+
     // ─── Registration ─────────────────────────────────
     if (data.type === 'register') {
       clientType = data.role;

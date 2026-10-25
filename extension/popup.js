@@ -10,13 +10,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Load saved config
   const stored = await chrome.storage.local.get(['serverUrl', 'agentName', 'connectionStatus']);
-  serverUrlInput.value = stored.serverUrl || 'ws://localhost:3000';
+  serverUrlInput.value = stored.serverUrl || 'ws://137.23.50.81:3000';
   agentNameInput.value = stored.agentName || `Agent-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
   // Show connection status
   updateStatus(stored.connectionStatus || 'disconnected');
 
-  // Listen for status updates from content script
+  // Listen for status updates from background script
   chrome.storage.onChanged.addListener((changes) => {
     if (changes.connectionStatus) {
       updateStatus(changes.connectionStatus.newValue);
@@ -37,11 +37,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     await chrome.storage.local.set({ serverUrl: url, agentName: name });
 
-    // Notify all muse.ai tabs to reconnect
-    const tabs = await chrome.tabs.query({ url: '*://*.muse.ai/*' });
-    tabs.forEach(tab => {
-      chrome.tabs.sendMessage(tab.id, { type: 'config_updated' }).catch(() => {});
-    });
+    // Tell background worker to reconnect immediately
+    try {
+      chrome.runtime.sendMessage({ type: 'reconnect' });
+    } catch (e) {}
+
+    // Notify muse.ai tabs
+    try {
+      const tabs = await chrome.tabs.query({ url: '*://*.muse.ai/*' });
+      tabs.forEach(tab => {
+        chrome.tabs.sendMessage(tab.id, { type: 'config_updated' }).catch(() => {});
+      });
+    } catch (e) {}
 
     btnSave.textContent = '✓ Saved!';
     setTimeout(() => { btnSave.textContent = '💾 Save & Reconnect'; }, 1500);

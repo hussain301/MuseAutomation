@@ -1,12 +1,13 @@
 // ============================================================
-//  Muse Agent Orchestrator — Content Script v2
+//  Muse Agent Orchestrator — Content Script v3
 //  Injected into muse.ai pages.
 //
 //  Features:
+//   - Relays through background service worker (No Mixed Content block)
 //   - XPath-based DOM targeting
 //   - New Chat button click (optional)
 //   - Auto-type + Enter key to send
-//   - Response capture via MutationObserver
+//   - Real-time response streaming capture via MutationObserver
 //   - React/Vue/Angular compatible input handling
 // ============================================================
 
@@ -14,115 +15,44 @@
   'use strict';
 
   // ── State ──────────────────────────────────────────────
-  let ws = null;
-  let agentNumber = 0;
   let config = {
-    serverUrl: '',
-    agentName: '',
-    // Default XPaths (provided by user)
     inputXPath: '/html/body/div[2]/div/div/div/div/div[1]/div/div[3]/div/div/div[3]/div/div/div[1]/div/textarea',
     newChatButtonXPath: '/html/body/div[2]/div/div/div/div/div[1]/div/div[1]/div/div/div[4]/div/div/nav/div/div[2]/div/div/div/div[1]/section/div[1]/span/button',
     responseXPath: ''
   };
-  let agentId = null;
-  let reconnectTimer = null;
-  let reconnectDelay = 3000;
-  const MAX_RECONNECT_DELAY = 30000;
 
   // ── Initialize ─────────────────────────────────────────
   async function init() {
+    console.log('[Muse Orchestrator] Content script loaded on', window.location.href);
+
     const stored = await chrome.storage.local.get([
-      'agentId', 'serverUrl', 'agentName',
       'inputXPath', 'newChatButtonXPath', 'responseXPath'
     ]);
 
-    agentId = stored.agentId;
-    if (!agentId) {
-      agentId = 'agent-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8);
-      await chrome.storage.local.set({ agentId });
-    }
-
-    config.serverUrl = stored.serverUrl || 'ws://localhost:3000';
-    config.agentName = stored.agentName || ('Profile-' + (location.pathname.split('/')[1] || Math.random().toString(36).substring(2, 6)));
-    
-    // Override XPaths only if explicitly saved
     if (stored.inputXPath) config.inputXPath = stored.inputXPath;
     if (stored.newChatButtonXPath) config.newChatButtonXPath = stored.newChatButtonXPath;
     if (stored.responseXPath) config.responseXPath = stored.responseXPath;
 
-    if (config.serverUrl) {
-      connectToServer();
-    } else {
-      console.log('[Muse Orchestrator] No server URL configured. Open the extension popup to set it.');
-    }
+    // Notify background script that this tab is active and online
+    sendStatus('online');
   }
 
-  // ── WebSocket Connection ───────────────────────────────
-  function connectToServer() {
-    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-      ws.close();
-    }
-    clearTimeout(reconnectTimer);
+  // ── Listen for Commands from Background Script ─────────
+  chrome.runtime.onMessage.addListener((data, sender, sendResponse) => {
+    if (!data) return;
 
-    try {
-      ws = new WebSocket(config.serverUrl);
-    } catch (e) {
-      console.error('[Muse Orchestrator] Invalid WebSocket URL:', config.serverUrl);
-      scheduleReconnect();
-      return;
+    if (data.type === 'command') {
+      handleCommand(data);
     }
 
-    ws.onopen = () => {
-      console.log('[Muse Orchestrator] Connected to server ✓');
-      reconnectDelay = 3000;
-
-      ws.send(JSON.stringify({
-        type: 'register',
-        role: 'agent',
-        agentId: agentId,
-        name: config.agentName,
-        url: window.location.href
-      }));
-
-      setConnectionStatus('connected');
-    };
-
-    ws.onmessage = (event) => {
-      let data;
-      try { data = JSON.parse(event.data); } catch (e) { return; }
-
-      if (data.type === 'command') {
-        handleCommand(data);
-      }
-      
-      // Server tells us our assigned number
-      if (data.type === 'assigned') {
-        agentNumber = data.number;
-        console.log(`[Muse Orchestrator] Assigned agent number: #${agentNumber}`);
-      }
-    };
-
-    ws.onclose = () => {
-      console.log('[Muse Orchestrator] Disconnected from server');
-      setConnectionStatus('disconnected');
-      scheduleReconnect();
-    };
-
-    ws.onerror = () => {};
-  }
-
-  function scheduleReconnect() {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = setTimeout(() => {
-      console.log(`[Muse Orchestrator] Reconnecting...`);
-      connectToServer();
-    }, reconnectDelay);
-    reconnectDelay = Math.min(reconnectDelay * 1.5, MAX_RECONNECT_DELAY);
-  }
-
-  function setConnectionStatus(status) {
-    chrome.storage.local.set({ connectionStatus: status }).catch(() => {});
-  }
+    if (data.type === 'config_updated') {
+      chrome.storage.local.get(['inputXPath', 'newChatButtonXPath', 'responseXPath']).then((stored) => {
+        if (stored.inputXPath) config.inputXPath = stored.inputXPath;
+        if (stored.newChatButtonXPath) config.newChatButtonXPath = stored.newChatButtonXPath;
+        if (stored.responseXPath !== undefined) config.responseXPath = stored.responseXPath;
+      });
+    }
+  });
 
   // ── Handle Commands ────────────────────────────────────
   function handleCommand(data) {
@@ -133,11 +63,10 @@
     }
 
     if (data.action === 'close_tab') {
-      console.log('[Muse Orchestrator] Received close_tab command. Closing...');
+      console.log('[Muse Orchestrator] Received close_tab command.');
       try {
         window.close();
       } catch (e) {}
-      // Fallback: navigate to about:blank to effectively kill the tab
       setTimeout(() => { window.location.href = 'about:blank'; }, 500);
     }
 
@@ -146,7 +75,7 @@
       if (c.inputXPath) config.inputXPath = c.inputXPath;
       if (c.newChatButtonXPath) config.newChatButtonXPath = c.newChatButtonXPath;
       if (c.responseXPath !== undefined) config.responseXPath = c.responseXPath;
-      // Persist
+
       chrome.storage.local.set({
         inputXPath: config.inputXPath,
         newChatButtonXPath: config.newChatButtonXPath,
@@ -173,7 +102,6 @@
       }
 
       // Step 2: Find the textarea
-      // Retry a few times in case the DOM is still loading
       let inputEl = null;
       for (let attempt = 0; attempt < 5; attempt++) {
         inputEl = findElementByXPath(config.inputXPath);
@@ -185,14 +113,11 @@
         throw new Error(`Input textarea not found after retries! XPath: "${config.inputXPath}"`);
       }
 
-      // Step 3: Count existing messages (for response detection)
-      const messagesBefore = countChatMessages();
-
-      // Step 4: Type the message into the textarea
+      // Step 3: Type the message into the textarea
       await setInputValue(inputEl, message);
       await sleep(300);
 
-      // Step 5: Press Enter to send
+      // Step 4: Press Enter to send
       pressEnter(inputEl);
       await sleep(500);
 
@@ -218,7 +143,6 @@
   }
 
   // ── DOM Helpers ────────────────────────────────────────
-
   function findElementByXPath(xpath) {
     if (!xpath) return null;
     try {
@@ -279,39 +203,40 @@
    * Simulate pressing Enter key
    */
   function pressEnter(element) {
-    // keydown
     element.dispatchEvent(new KeyboardEvent('keydown', {
       key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
       bubbles: true, cancelable: true
     }));
-    // keypress
     element.dispatchEvent(new KeyboardEvent('keypress', {
       key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
       bubbles: true, cancelable: true
     }));
-    // keyup
     element.dispatchEvent(new KeyboardEvent('keyup', {
       key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
       bubbles: true, cancelable: true
     }));
   }
 
-  // ── Server Communication ───────────────────────────────
+  // ── Relay Communication to Background Worker ───────────
   function sendStatus(status) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'status', status, url: window.location.href }));
-    }
+    chrome.runtime.sendMessage({
+      type: 'status',
+      status: status,
+      url: window.location.href
+    }).catch(() => {});
   }
 
   function sendAck(success, message) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'ack', success, message }));
-    }
+    chrome.runtime.sendMessage({
+      type: 'ack',
+      success: success,
+      message: message
+    }).catch(() => {});
   }
 
   // ── Real-time Chat Monitor (Full Message & Streaming) ──
   const initialOldMessageIds = new Set();
-  const trackedMessages = new Map(); // msgId => { lastSentText, debounceTimer, isFinal }
+  const trackedMessages = new Map(); // msgId => { lastSentText, debounceTimer }
   let isInitialScanDone = false;
 
   function markExistingMessagesAsSeen() {
@@ -388,7 +313,7 @@
         proseText = proseText.replace(/^(You|Assistant):\s*/i, '').trim();
       }
 
-      // Pick whichever text is longer / more complete!
+      // Pick whichever text is longer / more complete
       if (proseText && surrogateText) {
         text = proseText.length >= surrogateText.length ? proseText : surrogateText;
       } else {
@@ -421,11 +346,9 @@
   }
 
   function sendChatMessage(msgId, role, text) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    console.log('[Muse Orchestrator] Relaying chat message to background:', role, text.substring(0, 60));
 
-    console.log('[Muse Orchestrator] Sending chat message:', role, text.substring(0, 60));
-
-    ws.send(JSON.stringify({
+    chrome.runtime.sendMessage({
       type: 'chat_stream',
       message: {
         id: msgId,
@@ -433,7 +356,7 @@
         text: text,
         timestamp: new Date().toLocaleTimeString()
       }
-    }));
+    }).catch(() => {});
 
     if (role === 'assistant') {
       sendStatus('online');
@@ -444,20 +367,6 @@
   function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
-
-  // ── Listen for Config Updates from Popup ───────────────
-  chrome.runtime.onMessage.addListener((msg) => {
-    if (msg.type === 'config_updated') {
-      chrome.storage.local.get(['serverUrl', 'agentName']).then((stored) => {
-        config.serverUrl = stored.serverUrl || '';
-        config.agentName = stored.agentName || 'Unnamed Agent';
-        if (config.serverUrl) {
-          console.log('[Muse Orchestrator] Config updated, reconnecting...');
-          connectToServer();
-        }
-      });
-    }
-  });
 
   // ── Start ──────────────────────────────────────────────
   init();
