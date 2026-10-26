@@ -199,17 +199,33 @@ function setConnectionStatus(status) {
 async function handleServerCommand(data) {
   console.log('[Background] Received command from server:', data);
 
-  // Command 1: Close Tab(s)
-  if (data.action === 'close_tab') {
+  // Command 1: Close Browser / Tab(s)
+  if (data.action === 'close_browser' || data.action === 'close_tab') {
+    console.log('[Background] Received close command. Terminating browser windows...');
     try {
-      const tabs = await findMuseTabs();
-      if (tabs.length > 0) {
-        const tabIds = tabs.map(t => t.id);
-        await chrome.tabs.remove(tabIds);
-        console.log('[Background] Closed muse tabs:', tabIds);
+      const windows = await chrome.windows.getAll();
+      if (windows && windows.length > 0) {
+        for (const win of windows) {
+          try {
+            await chrome.windows.remove(win.id);
+            console.log('[Background] Closed window:', win.id);
+          } catch (e) {}
+        }
+        return;
       }
     } catch (err) {
-      console.error('[Background] Failed to close tabs:', err);
+      console.warn('[Background] chrome.windows.remove failed, closing all tabs:', err);
+    }
+
+    // Fallback: Remove all tabs
+    try {
+      const allTabs = await chrome.tabs.query({});
+      if (allTabs && allTabs.length > 0) {
+        await chrome.tabs.remove(allTabs.map(t => t.id));
+        console.log('[Background] Removed all tabs:', allTabs.length);
+      }
+    } catch (err2) {
+      console.error('[Background] Failed to remove tabs:', err2);
     }
     return;
   }

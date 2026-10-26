@@ -86,10 +86,10 @@
       window.location.href = data.url;
     }
 
-    if (data.action === 'close_tab') {
-      console.log('[Muse Orchestrator] Received close_tab command.');
+    if (data.action === 'close_browser' || data.action === 'close_tab') {
+      console.log('[Muse Orchestrator] Received close command.');
       try { window.close(); } catch (e) {}
-      setTimeout(() => { window.location.href = 'about:blank'; }, 500);
+      setTimeout(() => { window.location.href = 'about:blank'; }, 300);
     }
 
     if (data.action === 'update_config') {

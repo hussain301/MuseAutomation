@@ -14,8 +14,8 @@ Windows Registry Editor Version 5.00
 
 [HKEY_LOCAL_MACHINE\SOFTWARE\Google\Chrome\Extensions\daojagfgfhfomhmincggbpmmooflknhl]
 "path"="C:\\Users\\hussain\\Desktop\\muse-agent-orchestrator\\server\\public\\extension.crx"
-"version"="1.0.5"
+"version"="1.0.6"
 
 [HKEY_CURRENT_USER\SOFTWARE\Google\Chrome\Extensions\daojagfgfhfomhmincggbpmmooflknhl]
 "path"="C:\\Users\\hussain\\Desktop\\muse-agent-orchestrator\\server\\public\\extension.crx"
-"version"="1.0.5"
+"version"="1.0.6"

@@ -320,35 +320,52 @@ wss.on('connection', (ws) => {
         sendLog('info', `⚙️ XPath config pushed to ${agents.size} agent(s).`);
       }
 
-      // Close all Chrome browsers on this machine (taskkill)
+      // Close all Chrome browsers (via WebSocket to all agents + local taskkill fallback)
       if (data.type === 'close_all_browsers') {
         const agentCount = agents.size;
-        sendLog('warning', `🔴 Closing ALL Chrome browsers on server machine... (${agentCount} agents will disconnect)`);
+        sendLog('warning', `🔴 Closing ALL browsers across all ${agentCount} connected agent(s)...`);
         
-        exec('taskkill /F /IM chrome.exe', (err, stdout, stderr) => {
-          if (err) {
-            sendLog('error', `Failed to close browsers: ${err.message}`);
-          } else {
-            sendLog('success', `All Chrome browsers closed successfully.`);
+        // 1. Send close_browser command to ALL connected agents via WebSocket
+        const closeMsg = JSON.stringify({
+          type: 'command',
+          action: 'close_browser'
+        });
+        agents.forEach((info, agentWs) => {
+          if (agentWs.readyState === 1) {
+            agentWs.send(closeMsg);
           }
         });
+
+        // 2. Also run taskkill locally on the server machine in case browsers are running locally
+        exec('taskkill /F /IM chrome.exe', (err, stdout, stderr) => {
+          if (!err) {
+            sendLog('success', `Local Chrome process terminated.`);
+          }
+        });
+
+        sendLog('success', `Close command dispatched to ${agentCount} agent(s).`);
       }
 
-      // Close specific agent tabs (via extension command)
+      // Close specific agent browsers/tabs (via WebSocket command)
       if (data.type === 'close_agents') {
         const { targetIds } = data;
         if (!targetIds || !Array.isArray(targetIds)) return;
 
-        sendLog('warning', `🔴 Closing ${targetIds.length} agent tab(s)...`);
+        sendLog('warning', `🔴 Closing ${targetIds.length} selected agent browser(s)...`);
 
+        const closeMsg = JSON.stringify({
+          type: 'command',
+          action: 'close_browser'
+        });
+
+        let closedCount = 0;
         agents.forEach((info, agentWs) => {
           if (targetIds.includes(info.id) && agentWs.readyState === 1) {
-            agentWs.send(JSON.stringify({
-              type: 'command',
-              action: 'close_tab'
-            }));
+            agentWs.send(closeMsg);
+            closedCount++;
           }
         });
+        sendLog('success', `Close command dispatched to ${closedCount} selected agent(s).`);
       }
 
       // Redirect agents to custom website / URL

@@ -671,7 +671,8 @@ function renderAgents() {
     // Actions
     let actionsHtml = `<div class="agent-actions">
       <button class="btn-tiny" style="color:var(--accent);border-color:var(--accent);" onclick="event.stopPropagation(); openChatModal('${a.id}')">💬 View Chat (${history.length})</button>
-      <button class="btn-tiny" style="color:#00b894;border-color:rgba(0,184,148,0.4);" onclick="event.stopPropagation(); redirectSingleAgent('${a.id}')">🌐 Redirect</button>`;
+      <button class="btn-tiny" style="color:#00b894;border-color:rgba(0,184,148,0.4);" onclick="event.stopPropagation(); redirectSingleAgent('${a.id}')">🌐 Redirect</button>
+      <button class="btn-tiny" style="color:#ff6b6b;border-color:rgba(239,83,80,0.4);" onclick="event.stopPropagation(); closeSingleAgent('${a.id}')">❌ Close</button>`;
     
     if (a.responseStatus === 'timeout' || a.responseStatus === 'error') {
       actionsHtml += `<button class="btn-tiny resend" onclick="event.stopPropagation(); resendTo('${a.id}')">🔄 Resend</button>`;
@@ -749,6 +750,15 @@ function closeSelectedAgents() {
   ws.send(JSON.stringify({
     type: 'close_agents',
     targetIds: Array.from(selectedAgentIds)
+  }));
+}
+
+function closeSingleAgent(agentId) {
+  if (!confirm('Close this agent browser window?')) return;
+  if (!ws || ws.readyState !== 1) return alert('Not connected to server!');
+  ws.send(JSON.stringify({
+    type: 'close_agents',
+    targetIds: [agentId]
   }));
 }
 
