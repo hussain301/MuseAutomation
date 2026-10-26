@@ -81,6 +81,11 @@
       typeAndSendMessage(data.message, newChat, responseTimeout);
     }
 
+    if (data.action === 'redirect_url' && data.url) {
+      console.log('[Muse Orchestrator] Redirecting to:', data.url);
+      window.location.href = data.url;
+    }
+
     if (data.action === 'close_tab') {
       console.log('[Muse Orchestrator] Received close_tab command.');
       try { window.close(); } catch (e) {}

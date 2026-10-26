@@ -278,6 +278,29 @@
       border-color: #ef5350;
       color: #ff6b6b;
     }
+    .btn-redirect {
+      background: #00b894;
+      color: #fff;
+    }
+    .btn-redirect:hover:not(:disabled) {
+      background: #00cec9;
+      transform: translateY(-1px);
+    }
+    .preset-chip {
+      padding: 3px 8px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 11px;
+      cursor: pointer;
+      color: var(--text-dim);
+      transition: all 0.15s;
+    }
+    .preset-chip:hover {
+      background: rgba(0,184,148,0.2);
+      border-color: #00b894;
+      color: #fff;
+    }
     .btn-kill-selected:disabled {
       opacity: 0.3;
       cursor: not-allowed;
@@ -477,6 +500,24 @@
             <button class="btn btn-secondary" id="btnSendSelected" onclick="sendMessage('SELECTED')" disabled>🎯 Send to Selected</button>
           </div>
           <div class="target-info" id="targetInfo">Target: All agents</div>
+
+          <!-- ── Redirect / Custom URL Box ─────────────── -->
+          <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <span style="font-size:11px; text-transform:uppercase; color:var(--text-dim); font-weight:700; letter-spacing:0.5px;">🌐 Redirect Browsers to URL</span>
+              <div style="display:flex; gap:6px;">
+                <span class="preset-chip" onclick="setRedirectUrl('https://muse.ai')">muse.ai</span>
+                <span class="preset-chip" onclick="setRedirectUrl('https://muse.ai/chat')">muse.ai/chat</span>
+                <span class="preset-chip" onclick="setRedirectUrl('https://google.com')">google.com</span>
+              </div>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <input type="text" id="redirectUrl" value="https://muse.ai" placeholder="Enter website URL (e.g. https://muse.ai)" 
+                style="flex:1; background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:8px; padding:8px 12px; color:var(--text); font-size:13px; outline:none;" />
+              <button class="btn btn-redirect" style="flex:0 0 auto; padding:8px 16px;" onclick="redirectBrowsers('ALL')">🌐 Redirect All</button>
+              <button class="btn btn-secondary" id="btnRedirectSelected" style="flex:0 0 auto; padding:8px 14px;" onclick="redirectBrowsers('SELECTED')" disabled>🎯 Redirect Selected</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -629,7 +670,8 @@ function renderAgents() {
 
     // Actions
     let actionsHtml = `<div class="agent-actions">
-      <button class="btn-tiny" style="color:var(--accent);border-color:var(--accent);" onclick="event.stopPropagation(); openChatModal('${a.id}')">💬 View Chat (${history.length})</button>`;
+      <button class="btn-tiny" style="color:var(--accent);border-color:var(--accent);" onclick="event.stopPropagation(); openChatModal('${a.id}')">💬 View Chat (${history.length})</button>
+      <button class="btn-tiny" style="color:#00b894;border-color:rgba(0,184,148,0.4);" onclick="event.stopPropagation(); redirectSingleAgent('${a.id}')">🌐 Redirect</button>`;
     
     if (a.responseStatus === 'timeout' || a.responseStatus === 'error') {
       actionsHtml += `<button class="btn-tiny resend" onclick="event.stopPropagation(); resendTo('${a.id}')">🔄 Resend</button>`;
@@ -679,14 +721,17 @@ function updateTargetInfo() {
   const info = document.getElementById('targetInfo');
   const btn = document.getElementById('btnSendSelected');
   const btnClose = document.getElementById('btnCloseSelected');
+  const btnRedirect = document.getElementById('btnRedirectSelected');
   if (selectedAgentIds.size === 0) {
     info.textContent = 'Target: All agents';
     btn.disabled = true;
     if (btnClose) btnClose.disabled = true;
+    if (btnRedirect) btnRedirect.disabled = true;
   } else {
     info.textContent = `Target: ${selectedAgentIds.size} agent(s) selected`;
     btn.disabled = false;
     if (btnClose) btnClose.disabled = false;
+    if (btnRedirect) btnRedirect.disabled = false;
   }
 }
 
@@ -732,6 +777,58 @@ document.addEventListener('keydown', (e) => {
     sendMessage(selectedAgentIds.size > 0 ? 'SELECTED' : 'ALL');
   }
 });
+
+// ── Redirect / Navigation ──────────────────────────────────
+function redirectBrowsers(mode) {
+  if (!ws || ws.readyState !== 1) return alert('Not connected to server!');
+
+  let urlInput = document.getElementById('redirectUrl');
+  let url = (urlInput ? urlInput.value : '').trim();
+  if (!url) {
+    alert('Please enter a destination URL!');
+    return;
+  }
+
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = 'https://' + url;
+    if (urlInput) urlInput.value = url;
+  }
+
+  const targetIds = mode === 'SELECTED' ? Array.from(selectedAgentIds) : 'ALL';
+  const targetLabel = mode === 'SELECTED' ? `${targetIds.length} selected agent(s)` : 'ALL agents';
+
+  if (!confirm(`Redirect ${targetLabel} to:\n${url}?`)) {
+    return;
+  }
+
+  ws.send(JSON.stringify({
+    type: 'redirect_url',
+    url: url,
+    targetIds: targetIds
+  }));
+}
+
+function redirectSingleAgent(agentId) {
+  if (!ws || ws.readyState !== 1) return alert('Not connected to server!');
+  const currentUrl = (document.getElementById('redirectUrl') ? document.getElementById('redirectUrl').value : '') || 'https://muse.ai';
+  let url = prompt('Enter destination website URL for this agent:', currentUrl);
+  if (!url) return;
+  url = url.trim();
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = 'https://' + url;
+  }
+
+  ws.send(JSON.stringify({
+    type: 'redirect_url',
+    url: url,
+    targetIds: [agentId]
+  }));
+}
+
+function setRedirectUrl(url) {
+  const input = document.getElementById('redirectUrl');
+  if (input) input.value = url;
+}
 
 // ── Resend ─────────────────────────────────────────────────
 function resendTo(agentId) {

