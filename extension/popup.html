@@ -82,6 +82,29 @@
     }
     .btn-save:hover { background: #7c6cf0; }
 
+    .btn-redirect {
+      background: #00b894;
+      color: #fff;
+      margin-top: 6px;
+    }
+    .btn-redirect:hover { background: #00cec9; }
+
+    .preset-chip {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid #2a2a3a;
+      color: #aaa;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .preset-chip:hover {
+      background: rgba(0,184,148,0.25);
+      border-color: #00b894;
+      color: #fff;
+    }
+
     .info {
       margin-top: 14px;
       font-size: 11px;
@@ -111,6 +134,20 @@
   </div>
 
   <button class="btn btn-save" id="btnSave">💾 Save & Reconnect</button>
+
+  <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid #2a2a3a;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+      <label style="display:block; font-size:11px; color:#888; text-transform:uppercase; letter-spacing:0.5px;">🌐 Redirect Tab / URL</label>
+      <div style="display:flex; gap:4px;">
+        <span class="preset-chip" data-url="https://muse.ai">muse.ai</span>
+        <span class="preset-chip" data-url="https://muse.ai/chat">chat</span>
+        <span class="preset-chip" data-url="https://google.com">google</span>
+      </div>
+    </div>
+    <input type="text" id="targetUrlInput" value="https://muse.ai" placeholder="https://muse.ai" 
+      style="width:100%; padding:8px 10px; background:rgba(255,255,255,0.06); border:1px solid #2a2a3a; border-radius:6px; color:#e0e0e0; font-size:13px; outline:none;" />
+    <button class="btn btn-redirect" id="btnRedirect">🌐 Redirect This Browser</button>
+  </div>
 
   <div class="info">
     Save karne ke baad extension Muse tab ko automatically reconnect karega. Make sure Muse website open hai ek tab me.

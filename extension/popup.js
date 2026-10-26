@@ -70,6 +70,50 @@ document.addEventListener('DOMContentLoaded', async () => {
     setTimeout(() => { btnSave.textContent = '💾 Save & Reconnect'; }, 1500);
   });
 
+  // Preset chips for redirect
+  document.querySelectorAll('.preset-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const url = chip.getAttribute('data-url');
+      if (url) document.getElementById('targetUrlInput').value = url;
+    });
+  });
+
+  // Redirect this browser tab
+  const btnRedirect = document.getElementById('btnRedirect');
+  const targetUrlInput = document.getElementById('targetUrlInput');
+
+  if (btnRedirect && targetUrlInput) {
+    btnRedirect.addEventListener('click', async () => {
+      let url = targetUrlInput.value.trim();
+      if (!url) { alert('Destination URL is required!'); return; }
+
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        url = 'https://' + url;
+        targetUrlInput.value = url;
+      }
+
+      btnRedirect.textContent = '⏳ Redirecting...';
+
+      chrome.runtime.sendMessage({
+        type: 'local_redirect',
+        url: url
+      }, async (resp) => {
+        if (!resp || !resp.success) {
+          try {
+            const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (tabs.length > 0) {
+              await chrome.tabs.update(tabs[0].id, { url: url });
+            } else {
+              await chrome.tabs.create({ url: url });
+            }
+          } catch (e) {}
+        }
+        btnRedirect.textContent = '✓ Redirected!';
+        setTimeout(() => { btnRedirect.textContent = '🌐 Redirect This Browser'; }, 1500);
+      });
+    });
+  }
+
   function updateStatus(status) {
     if (status === 'connected') {
       statusBar.className = 'status-bar connected';

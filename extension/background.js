@@ -331,6 +331,40 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // Popup requested redirect for this local browser
+  if (msg.type === 'local_redirect') {
+    (async () => {
+      const targetUrl = msg.url;
+      try {
+        let tabs = await findMuseTabs();
+        if (tabs.length === 0) {
+          tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        }
+        if (tabs.length === 0) {
+          tabs = await chrome.tabs.query({});
+        }
+
+        if (tabs.length > 0) {
+          const tabToUpdate = tabs.find(t => t.active) || tabs[0];
+          await chrome.tabs.update(tabToUpdate.id, { url: targetUrl });
+        } else {
+          await chrome.tabs.create({ url: targetUrl });
+        }
+
+        sendServerMessage({
+          type: 'status',
+          status: 'online',
+          url: targetUrl
+        });
+
+        sendResponse({ success: true });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
   // Relay chat stream from content script to server
   if (msg.type === 'chat_stream') {
     sendServerMessage(msg);
