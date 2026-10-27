@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Muse Agent Orchestrator — Admin Panel</title>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
@@ -26,6 +26,7 @@
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
     }
 
     /* ── Header ─────────────────────────────── */
@@ -33,18 +34,35 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 14px 28px;
+      padding: 12px 24px;
       border-bottom: 1px solid var(--border);
       background: var(--card);
+      flex-wrap: wrap;
+      gap: 12px;
     }
-    header h1 { font-size: 18px; font-weight: 600; }
-    header h1 span { color: var(--accent); }
+    .header-brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .header-brand h1 {
+      font-size: 18px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .header-brand h1 span { color: var(--accent); }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
     .conn-badge {
       display: flex; align-items: center; gap: 8px;
       font-size: 13px; padding: 5px 14px;
       border-radius: 20px;
       background: rgba(0,230,118,0.1);
       border: 1px solid rgba(0,230,118,0.3);
+      white-space: nowrap;
     }
     .conn-badge .dot {
       width: 8px; height: 8px; border-radius: 50%;
@@ -63,6 +81,9 @@
       gap: 16px;
       padding: 20px 24px;
       height: calc(100vh - 57px);
+    }
+    .panel.panel-agents {
+      grid-row: 2 / 4;
     }
 
     .panel {
@@ -307,6 +328,31 @@
     }
     .target-info { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
 
+    /* ── Redirect Box ───────────────────────── */
+    .redirect-box {
+      margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);
+    }
+    .redirect-header {
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;
+    }
+    .redirect-title {
+      font-size: 11px; text-transform: uppercase; color: var(--text-dim); font-weight: 700; letter-spacing: 0.5px;
+    }
+    .preset-chips-wrap {
+      display: flex; gap: 6px; flex-wrap: wrap;
+    }
+    .redirect-controls {
+      display: flex; gap: 8px;
+    }
+    .redirect-input {
+      flex: 1; min-width: 0; background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 12px; color: var(--text); font-size: 13px; outline: none;
+    }
+    .redirect-input:focus { border-color: var(--accent); }
+    .redirect-btns-row {
+      display: flex; gap: 8px; flex-shrink: 0;
+    }
+
     /* ── Logs ───────────────────────────────── */
     .log-list {
       display: flex; flex-direction: column; gap: 3px;
@@ -418,22 +464,221 @@
     .feed-role.user { color: var(--accent); }
     .feed-text { font-size: 12px; line-height: 1.4; color: #ddd; word-break: break-word; }
 
-    /* ── Responsive ─────────────────────────── */
-    @media (max-width: 900px) {
-      .container { grid-template-columns: 1fr; }
+    /* ── Responsive Design for Desktop, Tablets & Mobile (Pixel 7 Pro, iPhones, Galaxy, etc.) ── */
+    .btn-text-short { display: none; }
+    .btn-text-full { display: inline; }
+
+    /* Tablets & Small Laptops */
+    @media (max-width: 1024px) {
+      .container {
+        grid-template-columns: 320px 1fr;
+        padding: 16px;
+        gap: 12px;
+      }
+      .panel-body { padding: 12px 14px; }
+      .stat-card { padding: 12px 14px; }
+      .stat-card .number { font-size: 30px; }
+    }
+
+    /* Mobile & Tablets (Pixel 7 Pro, iPhones, Galaxy, etc.) */
+    @media (max-width: 860px) {
+      body {
+        min-height: 100vh;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+        overflow-x: hidden;
+      }
+      header {
+        flex-direction: column;
+        align-items: stretch;
+        padding: 12px 16px;
+        gap: 10px;
+      }
+      .header-brand {
+        justify-content: space-between;
+        width: 100%;
+      }
+      .header-actions {
+        width: 100%;
+        display: flex;
+        gap: 8px;
+      }
+      .header-actions button {
+        flex: 1;
+        min-height: 38px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+      }
+      .container {
+        display: flex;
+        flex-direction: column;
+        height: auto;
+        min-height: calc(100vh - 65px);
+        padding: 12px;
+        gap: 14px;
+        overflow-y: visible;
+      }
+      .stats-bar {
+        order: 1;
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+        width: 100%;
+      }
+      .stat-card {
+        padding: 12px 10px;
+      }
+      .stat-card .number {
+        font-size: 26px;
+      }
+      .stat-card .label {
+        font-size: 10px;
+        letter-spacing: 0.5px;
+      }
+      .panel.panel-broadcast {
+        order: 2;
+        width: 100%;
+        height: auto;
+      }
+      .panel.panel-agents {
+        order: 3;
+        width: 100%;
+        max-height: 460px;
+      }
+      .panel.panel-tabs {
+        order: 4;
+        width: 100%;
+        min-height: 360px;
+        height: auto;
+      }
+      .redirect-controls {
+        flex-direction: column;
+        gap: 8px;
+      }
+      .redirect-input {
+        width: 100%;
+        font-size: 14px;
+      }
+      .redirect-btns-row {
+        width: 100%;
+        display: flex;
+        gap: 8px;
+      }
+      .redirect-btns-row .btn {
+        flex: 1;
+        text-align: center;
+        min-height: 38px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        padding: 8px 10px;
+      }
+      .broadcast-btns {
+        flex-direction: column;
+        gap: 8px;
+      }
+      .broadcast-btns .btn {
+        width: 100%;
+        min-height: 40px;
+      }
+      .agent-actions {
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .agent-actions .btn-tiny {
+        flex: 1;
+        min-width: 70px;
+        min-height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+      }
+    }
+
+    /* Small Mobile Phones (Pixel 7 Pro 412px, iPhone 390px-430px, Galaxy 360px) */
+    @media (max-width: 480px) {
+      .btn-text-full { display: none; }
+      .btn-text-short { display: inline; }
+      .header-brand h1 { font-size: 16px; }
+      .conn-badge { font-size: 12px; padding: 4px 10px; }
+      .container { padding: 8px; gap: 10px; }
+      .panel-header {
+        padding: 10px 12px;
+        font-size: 11px;
+      }
+      .panel-body {
+        padding: 10px 12px;
+      }
+      .tab-btn {
+        font-size: 11px;
+      }
+      .panel-header div[style*="display:flex;gap:16px"] {
+        gap: 8px !important;
+      }
+      .broadcast-area textarea {
+        font-size: 14px;
+        min-height: 90px;
+      }
+      .chat-modal {
+        width: 100%;
+        height: 100%;
+        max-height: 100vh;
+        border-radius: 0;
+        border: none;
+      }
+      .modal-overlay {
+        padding: 0;
+      }
+      .modal-header {
+        padding: 12px 14px;
+      }
+      .chat-messages-container {
+        padding: 12px;
+      }
+      .chat-msg {
+        max-width: 92%;
+      }
+      .chat-input-bar {
+        padding: 8px 10px;
+      }
+      .chat-input-bar input {
+        font-size: 14px; /* prevents mobile browser auto-zoom */
+      }
+      .empty-state {
+        padding: 20px 0;
+        font-size: 12px;
+      }
+      .redirect-header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .preset-chips-wrap {
+        width: 100%;
+      }
     }
   </style>
 </head>
 <body>
   <header>
-    <h1>🎛️ <span>Muse</span> Agent Orchestrator</h1>
-    <div style="display:flex;align-items:center;gap:12px;">
-      <button class="btn-kill" onclick="closeAllBrowsers()">🔴 Close All Browsers</button>
-      <button class="btn-kill-selected" id="btnCloseSelected" onclick="closeSelectedAgents()" disabled>✖ Close Selected</button>
+    <div class="header-brand">
+      <h1>🎛️ <span>Muse</span> Orchestrator</h1>
       <div class="conn-badge" id="serverStatus">
         <div class="dot"></div>
         <span>Connecting...</span>
       </div>
+    </div>
+    <div class="header-actions">
+      <button class="btn-kill" onclick="closeAllBrowsers()">
+        <span class="btn-text-full">🔴 Close All Browsers</span>
+        <span class="btn-text-short">🔴 Close All</span>
+      </button>
+      <button class="btn-kill-selected" id="btnCloseSelected" onclick="closeSelectedAgents()" disabled>
+        <span class="btn-text-full">✖ Close Selected</span>
+        <span class="btn-text-short">✖ Selected</span>
+      </button>
     </div>
   </header>
 
@@ -459,7 +704,7 @@
     </div>
 
     <!-- ── Left: Agent List ───────────── -->
-    <div class="panel" style="grid-row: 2 / 4;">
+    <div class="panel panel-agents">
       <div class="panel-header">
         <span>🤖 Agents (<span id="agentCount">0</span>)</span>
         <div style="display:flex;gap:6px;">
@@ -473,7 +718,7 @@
     </div>
 
     <!-- ── Right Top: Broadcast ────────── -->
-    <div class="panel">
+    <div class="panel panel-broadcast">
       <div class="panel-header"><span>📡 Broadcast Message</span></div>
       <div class="panel-body">
         <div class="broadcast-area">
@@ -502,20 +747,21 @@
           <div class="target-info" id="targetInfo">Target: All agents</div>
 
           <!-- ── Redirect / Custom URL Box ─────────────── -->
-          <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-              <span style="font-size:11px; text-transform:uppercase; color:var(--text-dim); font-weight:700; letter-spacing:0.5px;">🌐 Redirect Browsers to URL</span>
-              <div style="display:flex; gap:6px;">
+          <div class="redirect-box">
+            <div class="redirect-header">
+              <span class="redirect-title">🌐 Redirect Browsers to URL</span>
+              <div class="preset-chips-wrap">
                 <span class="preset-chip" onclick="setRedirectUrl('https://muse.ai')">muse.ai</span>
                 <span class="preset-chip" onclick="setRedirectUrl('https://muse.ai/chat')">muse.ai/chat</span>
                 <span class="preset-chip" onclick="setRedirectUrl('https://google.com')">google.com</span>
               </div>
             </div>
-            <div style="display:flex; gap:8px;">
-              <input type="text" id="redirectUrl" value="https://muse.ai" placeholder="Enter website URL (e.g. https://muse.ai)" 
-                style="flex:1; background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:8px; padding:8px 12px; color:var(--text); font-size:13px; outline:none;" />
-              <button class="btn btn-redirect" style="flex:0 0 auto; padding:8px 16px;" onclick="redirectBrowsers('ALL')">🌐 Redirect All</button>
-              <button class="btn btn-secondary" id="btnRedirectSelected" style="flex:0 0 auto; padding:8px 14px;" onclick="redirectBrowsers('SELECTED')" disabled>🎯 Redirect Selected</button>
+            <div class="redirect-controls">
+              <input type="text" id="redirectUrl" value="https://muse.ai" placeholder="Enter website URL (e.g. https://muse.ai)" class="redirect-input" />
+              <div class="redirect-btns-row">
+                <button class="btn btn-redirect" onclick="redirectBrowsers('ALL')">🌐 Redirect All</button>
+                <button class="btn btn-secondary" id="btnRedirectSelected" onclick="redirectBrowsers('SELECTED')" disabled>🎯 Redirect Selected</button>
+              </div>
             </div>
           </div>
         </div>
@@ -523,7 +769,7 @@
     </div>
 
     <!-- ── Right Bottom: Tabbed (Chat Feed / Logs / Config) ── -->
-    <div class="panel">
+    <div class="panel panel-tabs">
       <div class="panel-header">
         <div style="display:flex;gap:16px;">
           <span class="tab-btn active" onclick="switchTab('feed')" id="tabFeed" style="cursor:pointer;">💬 Live Chat Feed</span>
@@ -948,7 +1194,9 @@ function openChatModal(agentId) {
   document.getElementById('chatModal').className = 'modal-overlay active';
 
   renderModalMessages(agent);
-  document.getElementById('modalInput').focus();
+  if (window.innerWidth > 600) {
+    document.getElementById('modalInput').focus();
+  }
 }
 
 function closeChatModal(e) {
